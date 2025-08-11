@@ -1,13 +1,16 @@
 import { Controller, Post, Get, Body, Param } from '@nestjs/common';
 import { HdWalletService } from './hdwallet.service';
+import { CreateWalletDto } from './hdwalletdto';
 
 @Controller('wallet')
 export class WalletController {
   constructor(private readonly walletService: HdWalletService) {}
 
   @Post('create')
-  async createWallet(@Body() body: { name: string; passphrase?: string }) {
-    return await this.walletService.createWallet(body.name, body.passphrase);
+  async createWallet(@Body() createWalletDto: CreateWalletDto) {
+  const { name, passphrase} = createWalletDto
+    return await this.walletService.createWallet(name, passphrase);
+  
   }
 
   @Post('restore')

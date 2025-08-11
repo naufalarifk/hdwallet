@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DrizzleService } from '../database/drizzle.service';
 import { EncryptionService } from '../encryption/encription.service';
-import {BIP32Factory, BIP32Interface} from 'bip32';
+import {BIP32Factory} from 'bip32';
 import * as ecPair from 'ecpair'
 import * as ecc from 'tiny-secp256k1'
 import * as bip39 from 'bip39';
@@ -20,8 +20,8 @@ export class HdWalletService {
   async createWallet(name: string, passphrase?: string): Promise<WalletCreateResult> {
     const mnemonic = bip39.generateMnemonic();
     const bip32 = BIP32Factory(ecc)
-    const node: BIP32Interface = bip32.fromBase58('xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi');
-    const child: BIP32Interface = node.derivePath('m/0/0');
+    // const node: BIP32Interface = bip32.fromBase58('xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi');
+    // const child: BIP32Interface = node.derivePath('m/0/0');
     
     const seed = await bip39.mnemonicToSeed(mnemonic, passphrase);
     
