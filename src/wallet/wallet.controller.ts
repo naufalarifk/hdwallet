@@ -17,18 +17,19 @@ export class WalletController {
 
   @Post('create')
   async createWallet(@Body() createWalletDto: CreateWalletDto) {
-    this.logger.log(`Creating wallet: ${createWalletDto.name}`);
     const { name, passphrase } = createWalletDto;
+    this.logger.log(`Creating wallet: ${name}`);
     return await this.walletService.createWallet(name, passphrase);
   }
 
   @Post('restore')
   async restoreWallet(@Body() restoreWalletDto: RestoreWalletDto) {
-    this.logger.log(`Restoring wallet: ${restoreWalletDto.name}`);
+    const { mnemonic, name, passphrase } = restoreWalletDto;
+    this.logger.log(`Restoring wallet: ${name}`);
     return await this.walletService.restoreWallet(
-      restoreWalletDto.mnemonic, 
-      restoreWalletDto.name, 
-      restoreWalletDto.passphrase
+      mnemonic, 
+      name, 
+      passphrase
     );
   }
 
@@ -37,11 +38,12 @@ export class WalletController {
     @Param('walletId', ParseIntPipe) walletId: number,
     @Body() createAccountDto: CreateAccountDto
   ) {
-    this.logger.log(`Creating account for wallet ${walletId}, account index: ${createAccountDto.accountIndex}`);
+    const { accountIndex, name } = createAccountDto;
+    this.logger.log(`Creating account for wallet ${walletId}, account index: ${accountIndex}`);
     return await this.walletService.createAccount(
       walletId, 
-      createAccountDto.accountIndex, 
-      createAccountDto.name
+      accountIndex, 
+      name
     );
   }
 
@@ -50,11 +52,12 @@ export class WalletController {
     @Param('accountId', ParseIntPipe) accountId: number,
     @Body() generateAddressDto: GenerateAddressDto
   ) {
+    const { isChange, addressIndex } = generateAddressDto;
     this.logger.log(`Generating address for account ${accountId}`);
     return await this.walletService.generateAddress(
       accountId, 
-      generateAddressDto.isChange, 
-      generateAddressDto.addressIndex
+      isChange, 
+      addressIndex
     );
   }
 
