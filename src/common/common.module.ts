@@ -37,7 +37,31 @@ import * as winston from 'winston';
                         
                         const contextStr = context ? `\x1b[35m[${String(context)}]\x1b[0m ` : ''; // Magenta
                         const timestampStr = `\x1b[90m${String(timestamp)}\x1b[0m`; // Gray
-                        const metaStr = Object.keys(meta).length > 0 ? `\n${JSON.stringify(meta, null, 2)}` : '';
+                        
+                        // Safely handle meta object to avoid circular references
+                        let metaStr = '';
+                        if (Object.keys(meta).length > 0) {
+                            try {
+                                metaStr = `\n${JSON.stringify(meta, (key, value) => {
+                                    // Handle circular references and large objects
+                                    if (value && typeof value === 'object') {
+                                        if (value.constructor && value.constructor.name === 'ClientRequest') {
+                                            return '[ClientRequest]';
+                                        }
+                                        if (value.constructor && value.constructor.name === 'IncomingMessage') {
+                                            return '[IncomingMessage]';
+                                        }
+                                        if (value.constructor && value.constructor.name === 'Socket') {
+                                            return '[Socket]';
+                                        }
+                                    }
+                                    return value;
+                                }, 2)}`;
+                            } catch {
+                                metaStr = `\n[Object with circular references]`;
+                            }
+                        }
+                        
                         const stackStr = stack ? `\n${String(stack)}` : '';
                         
                         return `${timestampStr} ${colorizedLevel}: ${contextStr}${String(message)}${metaStr}${stackStr}`;
