@@ -32,4 +32,44 @@ export class VaultController {
             })
         );
     }
+
+    @Post('token/create')
+    createTokenForEncryption(): Observable<VaultResponse> {
+        this.logger.log('Attempting token creation for encryption...');
+        return this.vaultService.createTokenForEncryption().pipe(
+            map((response: AxiosResponse<VaultResponse>) => {
+                this.logger.log('Token creation successful');
+                return {
+                    ...response.data,
+                    status: response.status,
+                    statusText: response.statusText
+                };
+            }),
+            catchError((error) => {
+                this.logger.error('Token creation failed', error.message);
+                return throwError(() => error);
+            })
+        );
+    }
+
+    @Post('encrypt')
+    encrypt(@Body('data') data: string): Observable<VaultResponse> {
+        this.logger.log('Attempting encryption...');
+        const encoded = Buffer.from(data, 'utf-8').toString('base64');
+        this.logger.debug(`Data to encrypt: ${encoded}`);
+        return this.vaultService.encryptFromBase64(encoded).pipe(
+            map((response: AxiosResponse<VaultResponse>) => {
+                this.logger.log('Encryption successful');
+                return {
+                    ...response.data,
+                    status: response.status,
+                    statusText: response.statusText
+                };
+            }),
+            catchError((error) => {
+                this.logger.error('Encryption failed', error.message);
+                return throwError(() => error);
+            })
+        );
+    }
 }

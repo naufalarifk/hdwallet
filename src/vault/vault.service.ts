@@ -15,4 +15,29 @@ export class VaultService {
             secret_id: secret_id,
         });
     }
+
+
+    createTokenForEncryption(): Observable<AxiosResponse<VaultResponse>> {
+        return this.httpService.post('http://127.0.0.1:8200/v1/auth/token/create', {
+            headers: {
+                'X-Vault-Token': 'root'
+            },
+            data: {
+                policies: ['app-order'],
+            }
+        });
+    }
+
+    encryptFromBase64(data: string): Observable<AxiosResponse<VaultResponse>> {
+        return this.httpService.post('http://127.0.0.1:8200/v1/transit/encrypt/orders', {
+            headers: {
+                'X-Vault-Token': 'root'
+            },
+            data: {
+                policies: ['app-order'],
+                plaintext: data,
+            }
+        });
+    }
+
 }
