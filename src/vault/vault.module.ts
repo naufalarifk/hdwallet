@@ -1,11 +1,13 @@
-import { Module } from '@nestjs/common';
-import {VaultController} from './vault.controller';
+import { Module, Global } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { VaultService } from './vault.service';
-import { HttpModule } from '@nestjs/axios';
+import { VaultController } from './vault.controller';
 
+@Global()
 @Module({
+  imports: [ConfigModule],
   controllers: [VaultController],
   providers: [VaultService],
-  imports: [HttpModule],
+  exports: [VaultService],
 })
 export class VaultModule {}

@@ -6,12 +6,11 @@ import { ValidationPipe } from '@nestjs/common';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   
-  // Enable global validation with class-validator
   app.useGlobalPipes(new ValidationPipe({
-    transform: true, // Enable auto-transformation with class-transformer
-    whitelist: true, // Strip properties that don't have any decorators
-    forbidNonWhitelisted: true, // Throw error if non-whitelisted properties are present
-    disableErrorMessages: process.env.NODE_ENV === 'production', // Disable detailed error messages in production
+    transform: true,
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    disableErrorMessages: process.env.NODE_ENV === 'production',
   }));
 
   const logger = app.get(WINSTON_MODULE_PROVIDER);
