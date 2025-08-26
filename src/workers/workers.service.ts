@@ -1,5 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { fetchRpcUrl } from './blockchain/eth-rpc';
+import { fetchRpcUrl, getBlockNumber } from './blockchain/eth-rpc';
 import type { PublicClient, Hash, Hex, Address, TransactionRequest } from 'viem';
 import { BLOCKCHAIN_CLIENT } from './providers/blockchain.provider';
 
@@ -26,35 +26,21 @@ export class WorkersService {
     }
   }
 
-  async getBlockByNumber(blockNumber: bigint | 'latest' = 'latest') {
+
+  async getBlockNumber(): Promise<bigint> {
     try {
-      const block = await this.client.getBlock({
-        blockNumber: blockNumber === 'latest' ? undefined : blockNumber,
+      const blockNumber = await getBlockNumber({
+        client: this.client
       });
-      return block;
+      return blockNumber;
     } catch (error) {
-      console.error('Error fetching block:', error);
-      throw new Error('Failed to fetch block data');
+      console.error('Error fetching block number:', error);
+      throw new Error('Failed to fetch block number');
     }
   }
 
-  async getBalance(address: Address) {
-    try {
-      const balance = await this.client.getBalance({ address });
-      return balance;
-    } catch (error) {
-      console.error('Error fetching balance:', error);
-      throw new Error('Failed to fetch balance');
-    }
-  }
 
-  async getTransactionReceipt(hash: Hash) {
-    try {
-      const receipt = await this.client.getTransactionReceipt({ hash });
-      return receipt;
-    } catch (error) {
-      console.error('Error fetching transaction receipt:', error);
-      throw new Error('Failed to fetch transaction receipt');
-    }
-  }
+  
+
+
 }
