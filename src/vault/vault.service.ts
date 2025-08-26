@@ -129,10 +129,12 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
       return health;
     } catch (error) {
       this.logger.error('Vault health check failed', error.message);
+      
       throw new HttpException(
         `Vault health check failed: ${error.message}`,
         HttpStatus.SERVICE_UNAVAILABLE
       );
+
     }
   }
 

@@ -4,7 +4,9 @@ import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    bodyParser: false
+  });
   
   app.useGlobalPipes(new ValidationPipe({
     transform: true,

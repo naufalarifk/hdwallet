@@ -46,7 +46,6 @@ export class DrizzleService implements OnModuleInit, OnModuleDestroy {
       const client = await this.pool.connect();
       await client.query('SELECT NOW()');
       client.release();
-
       this.logger.info('Database connection established successfully', {
         context: 'DrizzleService',
         database: 'PostgreSQL',
