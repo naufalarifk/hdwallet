@@ -121,6 +121,49 @@ const hdkey = HDKey.fromMasterSeed(seed);
     return addresses;
   }
 
+
+
+   generateAddressTypes(mnemonic: string, index: number = 0) {
+    const hdkey = this.createHDWallet(mnemonic);
+    const childKey = hdkey.derive(`m/44'/0'/0'/0/${index}`);
+    
+    if (!childKey.privateKey) {
+      throw new Error('Failed to derive private key');
+    }
+
+    // Legacy P2PKH (starts with 1)
+    const p2pkh = btc.p2pkh(childKey.publicKey);
+    
+    // P2SH-wrapped SegWit (starts with 3)
+    const p2sh = btc.p2sh(btc.p2wpkh(childKey.publicKey));
+    
+    // Native SegWit (starts with bc1)
+    const p2wpkh = btc.p2wpkh(childKey.publicKey);
+
+    return {
+      derivationPath: `m/44'/0'/0'/0/${index}`,
+      legacy: {
+        type: 'P2PKH',
+        address: p2pkh.address
+      },
+      segwit_wrapped: {
+        type: 'P2SH-P2WPKH',
+        address: p2sh.address
+      },
+      native_segwit: {
+        type: 'P2WPKH',
+        address: p2wpkh.address
+      }
+    };
+  }
+
+  // Get account-level extended public key (for watch-only wallets)
+  getAccountXPub(mnemonic: string, account: number = 0): string {
+    const hdkey = this.createHDWallet(mnemonic);
+    const accountKey = hdkey.derive(`m/44'/0'/${account}'`);
+    return accountKey.publicExtendedKey;
+  }
+
   async createWallet(name: string, passphrase?: string, isChange?: boolean): Promise<WalletCreateResult> {
     console.log('Creating wallet:', name);
     const mnemonic = bip39.generateMnemonic();
