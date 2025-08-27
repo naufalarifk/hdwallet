@@ -11,7 +11,7 @@ import { eq } from 'drizzle-orm';
 import { WalletCreateResult, AccountResult } from '../types/database';
 
 
-import { generateMnemonic as _generateMnemonic, mnemonicToSeed, validateMnemonic } from '@scure/bip39';
+import { generateMnemonic as _generateMnemonic, mnemonicToSeed, validateMnemonic, mnemonicToSeedSync } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { HDKey } from '@scure/bip32';
 import * as btc from '@scure/btc-signer';
@@ -25,7 +25,21 @@ export class HdWalletService {
     private readonly encryption: EncryptionService,
   ) { }
   
+  validateMnemonic(mnemonic: string): boolean {
+    return validateMnemonic(mnemonic, wordlist);
+  }
 
+
+    createHDWallet(mnemonic: string) {
+    if (!this.validateMnemonic(mnemonic)) {
+      throw new Error('Invalid mnemonic');
+    }
+
+    const seed = mnemonicToSeedSync(mnemonic);
+    const hdkey = HDKey.fromMasterSeed(seed);
+    
+    return hdkey;
+  }
 
 
    generateAddressFromSecure(entropy: AllowedKeyEntropyBits = 256): string {
@@ -121,7 +135,7 @@ const hdkey = HDKey.fromMasterSeed(seed);
     return addresses;
   }
 
-
+//kept for later use, if need be ///////////////////////////////////////////////////////////////////////////////////////////
 
    generateAddressTypes(mnemonic: string, index: number = 0) {
     const hdkey = this.createHDWallet(mnemonic);
@@ -132,13 +146,13 @@ const hdkey = HDKey.fromMasterSeed(seed);
     }
 
     // Legacy P2PKH (starts with 1)
-    const p2pkh = btc.p2pkh(childKey.publicKey);
+    const p2pkh = btc.p2pkh(childKey.publicKey ?? Buffer.alloc(0));
     
     // P2SH-wrapped SegWit (starts with 3)
-    const p2sh = btc.p2sh(btc.p2wpkh(childKey.publicKey));
+    const p2sh = btc.p2sh(btc.p2wpkh(childKey.publicKey ?? Buffer.alloc(0)));
     
     // Native SegWit (starts with bc1)
-    const p2wpkh = btc.p2wpkh(childKey.publicKey);
+    const p2wpkh = btc.p2wpkh(childKey.publicKey ?? Buffer.alloc(0));
 
     return {
       derivationPath: `m/44'/0'/0'/0/${index}`,
@@ -215,6 +229,9 @@ const hdkey = HDKey.fromMasterSeed(seed);
       address: undefined,
     };
   }
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
   async createAccount(walletId: number, accountIndex: number, name?: string): Promise<AccountResult> {
     const bip32 = BIP32Factory(ecc)
