@@ -11,7 +11,7 @@ import { eq } from 'drizzle-orm';
 import { WalletCreateResult, AccountResult } from '../types/database';
 
 
-import { generateMnemonic as _generateMnemonic, mnemonicToSeed } from '@scure/bip39';
+import { generateMnemonic as _generateMnemonic, mnemonicToSeed, validateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { HDKey } from '@scure/bip32';
 import * as btc from '@scure/btc-signer';
@@ -37,6 +37,90 @@ export class HdWalletService {
     return _generateMnemonic(wordlist, entropy);
   }
 
+async generateWalletSimple() {
+  const mnemonic = this.generateAddressFromSecure();
+  const masterSeed = await mnemonicToSeed(mnemonic);
+  const network_version = {
+    mainnet: {
+      // zprv
+      private: 0x04b2430c,
+      // zpub
+      public: 0x04b24746,
+    },
+    testnet: {
+      // vprv
+      private: 0x045f18bc,
+      // vpub
+      public: 0x045f1cf6,
+    },
+  };
+
+  const hdkey = HDKey.fromMasterSeed(masterSeed, network_version.mainnet);
+
+    const receive_path = "m/84'/0'/0'/0/0";
+
+  // then we derive the receive node
+  const receive_node = hdkey.derive(receive_path);
+
+  // then we get the address
+  const receive_address = btc.getAddress('wpkh', receive_node.privateKey!);
+
+  // then we derive the next receive node
+  const next_receive_node = receive_node.deriveChild(1);
+
+  // here is the change path
+  const change_path = "m/84'/0'/0'/1/0"; // note the 1
+
+  // then we derive the change node
+  const change_node = hdkey.derive(change_path);
+  // same as above
+  const change_address = btc.getAddress('wpkh', change_node.privateKey!);
+
+  const next_change_node = change_node.deriveChild(1);
+
+return {
+  receive_address,
+  change_address,
+  next_receive_node,
+  next_change_node
+}
+
+}
+
+
+
+async generateWalletElaborate(){
+const count = 5;
+const addresses: { index: number; address: string; publicKey: string; privateKey: string; derivationPath: string; }[] = [];
+    const mnemonic = this.generateAddressFromSecure();
+    const validatedMnemonic = validateMnemonic(mnemonic, wordlist);
+    if (!validatedMnemonic) {
+      throw new Error('Invalid mnemonic');
+    }
+const seed = await mnemonicToSeed(mnemonic);
+const hdkey = HDKey.fromMasterSeed(seed);
+    for (let i = 0; i < count; i++) {
+      const childKey = hdkey.derive(`m/44'/0'/0'/0/${i}`);
+      
+      if (!childKey.privateKey) {
+        throw new Error('Failed to derive private key');
+      }
+
+
+      const payment = btc.p2pkh(childKey.publicKey ?? Buffer.alloc(0));
+      
+      addresses.push({
+        index: i,
+        address: payment.address,
+        publicKey: Buffer.from(childKey.publicKey ?? Buffer.alloc(0)).toString('hex'),
+        privateKey: Buffer.from(childKey.privateKey).toString('hex'),
+        derivationPath: `m/44'/0'/0'/0/${i}`
+      });
+    }
+
+    return addresses;
+  }
+
   async createWallet(name: string, passphrase?: string, isChange?: boolean): Promise<WalletCreateResult> {
     console.log('Creating wallet:', name);
     const mnemonic = bip39.generateMnemonic();
@@ -49,19 +133,19 @@ export class HdWalletService {
     const masterKey = bip32.fromSeed(seed);
   
     // Encrypt sensitive data
-    // const encryptedMnemonic = this.encryption.encrypt(mnemonic);
-    // const encryptedSeed = this.encryption.encrypt(seed.toString('hex'));
-    // const encryptedMasterPrivateKey = this.encryption.encrypt(masterKey.toBase58());
+    const encryptedMnemonic = this.encryption.encrypt(mnemonic);
+    const encryptedSeed = this.encryption.encrypt(seed.toString('hex'));
+    const encryptedMasterPrivateKey = this.encryption.encrypt(masterKey.toBase58());
     
     // Save wallet to database
-    // const [wallet] = await this.drizzle.db.insert(wallets).values({
-    //   name,
-    //   mnemonic: encryptedMnemonic,
-    //   seed: encryptedSeed,
-    //   masterPrivateKey: encryptedMasterPrivateKey,
+    const [wallet] = await this.drizzle.db.insert(wallets).values({
+      name,
+      mnemonic: encryptedMnemonic,
+      seed: encryptedSeed,
+      masterPrivateKey: encryptedMasterPrivateKey,
 
-    //   masterPublicKey: masterKey.neutered().toBase58(),
-    // }).returning();
+      masterPublicKey: masterKey.neutered().toBase58(),
+    }).returning();
 
 
 
@@ -84,8 +168,8 @@ export class HdWalletService {
       walletId: wallet.id,
       mnemonic,
       masterPublicKey: masterKey.neutered().toBase58(),
-      // derivationPath,
-      // address: undefined,
+      derivationPath,
+      address: undefined,
     };
   }
 

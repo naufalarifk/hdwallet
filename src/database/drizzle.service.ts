@@ -15,7 +15,12 @@ export class DrizzleService implements OnModuleInit, OnModuleDestroy {
   ) {
     // Initialize the PostgreSQL pool
     this.pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      // connectionString: process.env.DATABASE_URL,
+      host: process.env.DB_HOST,
+      port: Number(process.env.DB_PORT) ,
+      database: process.env.DB_NAME ,
+      user: process.env.DB_USER ,
+      password: process.env.DB_PASSWORD,
       max: 10,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
@@ -79,7 +84,7 @@ export class DrizzleService implements OnModuleInit, OnModuleDestroy {
     this.pool.on('connect', (client) => {
       this.logger.info('New database client connected', {
         context: 'DrizzleService',
-        processId: client.processID,
+        // processId: client?.processID,
       });
     });
 
@@ -88,7 +93,7 @@ export class DrizzleService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Database pool error', {
         context: 'DrizzleService',
         error: err.message,
-        processId: client?.processID,
+        // processId: client?.processID,
         stack: err.stack,
       });
     });
@@ -97,7 +102,7 @@ export class DrizzleService implements OnModuleInit, OnModuleDestroy {
     this.pool.on('remove', (client) => {
       this.logger.info('Database client removed from pool', {
         context: 'DrizzleService',
-        processId: client.processID,
+        // processId: client?.processID,
       });
     });
 
@@ -105,7 +110,7 @@ export class DrizzleService implements OnModuleInit, OnModuleDestroy {
     this.pool.on('acquire', (client) => {
       this.logger.debug('Database client acquired from pool', {
         context: 'DrizzleService',
-        processId: client.processID,
+        // processId: client.processID,
       });
     });
 
@@ -115,12 +120,12 @@ export class DrizzleService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn('Error releasing database client', {
           context: 'DrizzleService',
           error: err.message,
-          processId: client?.processID,
+          // processId: client?.processID,
         });
       } else {
         this.logger.debug('Database client released back to pool', {
           context: 'DrizzleService',
-          processId: client.processID,
+          // processId: client.processID,
         });
       }
     });

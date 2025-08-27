@@ -9,8 +9,8 @@ export interface WalletCreateResult {
   walletId: number;
   mnemonic: string;
   masterPublicKey: string;
-  // derivationPath: string;
-  // address: string | undefined;
+  derivationPath: string;
+  address: string | undefined;
 }
 
 export interface AccountResult {

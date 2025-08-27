@@ -83,6 +83,18 @@ export class WalletController {
     };
   }
 
+
+
+  @Post('generate')
+  async generateWallet() {
+    return await this.walletService.generateWalletSimple();
+  }
+
+  @Post('generate-elaborate')
+  async generateWalletElaborate() {
+    return await this.walletService.generateWalletElaborate();
+  }
+
   @Post('create')
   @ApiOperation({
     summary: 'Create a new HD wallet',
