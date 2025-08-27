@@ -1,5 +1,6 @@
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../database/schema';
+import { BIP32Interface } from 'node_modules/bip32/src/cjs/bip32';
 
 export type Database = NodePgDatabase<typeof schema>;
 
@@ -8,6 +9,8 @@ export interface WalletCreateResult {
   walletId: number;
   mnemonic: string;
   masterPublicKey: string;
+  // derivationPath: string;
+  // address: string | undefined;
 }
 
 export interface AccountResult {

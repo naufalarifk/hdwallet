@@ -10,14 +10,35 @@ import { wallets, accounts, addresses } from '../database/schema';
 import { eq } from 'drizzle-orm';
 import { WalletCreateResult, AccountResult } from '../types/database';
 
+
+import { generateMnemonic as _generateMnemonic, mnemonicToSeed } from '@scure/bip39';
+import { wordlist } from '@scure/bip39/wordlists/english';
+import { HDKey } from '@scure/bip32';
+import * as btc from '@scure/btc-signer';
+
+type AllowedKeyEntropyBits = 128 | 256;
+
 @Injectable()
 export class HdWalletService {
   constructor(
     private readonly drizzle: DrizzleService,
     private readonly encryption: EncryptionService,
-  ) {}
+  ) { }
+  
 
-  async createWallet(name: string, passphrase?: string): Promise<WalletCreateResult> {
+
+
+   generateAddressFromSecure(entropy: AllowedKeyEntropyBits = 256): string {
+    if (entropy !== 128 && entropy !== 256) {
+      throw new Error(`Invalid entropy. Allowed values are 128 or 256 bits. got: ${String(entropy)}`);
+    }
+
+
+    return _generateMnemonic(wordlist, entropy);
+  }
+
+  async createWallet(name: string, passphrase?: string, isChange?: boolean): Promise<WalletCreateResult> {
+    console.log('Creating wallet:', name);
     const mnemonic = bip39.generateMnemonic();
     const bip32 = BIP32Factory(ecc)
     // const node: BIP32Interface = bip32.fromBase58('xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi');
@@ -26,26 +47,45 @@ export class HdWalletService {
     const seed = await bip39.mnemonicToSeed(mnemonic, passphrase);
     
     const masterKey = bip32.fromSeed(seed);
-    
+  
     // Encrypt sensitive data
-    const encryptedMnemonic = this.encryption.encrypt(mnemonic);
-    const encryptedSeed = this.encryption.encrypt(seed.toString('hex'));
-    const encryptedMasterPrivateKey = this.encryption.encrypt(masterKey.toBase58());
+    // const encryptedMnemonic = this.encryption.encrypt(mnemonic);
+    // const encryptedSeed = this.encryption.encrypt(seed.toString('hex'));
+    // const encryptedMasterPrivateKey = this.encryption.encrypt(masterKey.toBase58());
     
     // Save wallet to database
-    const [wallet] = await this.drizzle.db.insert(wallets).values({
-      name,
-      mnemonic: encryptedMnemonic,
-      seed: encryptedSeed,
-      masterPrivateKey: encryptedMasterPrivateKey,
+    // const [wallet] = await this.drizzle.db.insert(wallets).values({
+    //   name,
+    //   mnemonic: encryptedMnemonic,
+    //   seed: encryptedSeed,
+    //   masterPrivateKey: encryptedMasterPrivateKey,
 
-      masterPublicKey: masterKey.neutered().toBase58(),
-    }).returning();
+    //   masterPublicKey: masterKey.neutered().toBase58(),
+    // }).returning();
 
+
+
+    const changeIndex = isChange ? 1 : 0;
+    const derivationPath = `m/44'/0'/${wallet.id}'/${changeIndex}/`;
+    const addressKey = masterKey.derive(changeIndex).derive(1);
+
+  const { address } = bitcoin.payments.p2pkh({ 
+      pubkey: addressKey.publicKey as Buffer<ArrayBufferLike>,
+      network: bitcoin.networks.bitcoin ,
+  });
+    
+    
+    console.log('derivationPath', derivationPath)
+    console.log('addressKey', addressKey)
+    
+    console.log('Generated address for wallet:', address);
+    
     return {
       walletId: wallet.id,
-      mnemonic, // Return unencrypted for user to backup
+      mnemonic,
       masterPublicKey: masterKey.neutered().toBase58(),
+      // derivationPath,
+      // address: undefined,
     };
   }
 
@@ -151,17 +191,27 @@ export class HdWalletService {
     return savedAddress;
   }
 
-  getWalletBalance(walletId: number): number {
-
-    const balance = 0
+  getWalletBalance(walletId: number): { walletId: number; confirmedBalance: number; unconfirmedBalance: number; totalBalance: number; totalBalanceBtc: number; addressCount: number; lastUpdated: string } {
     // Implementation would involve querying blockchain for UTXO
     // This is a placeholder
-    return balance;
+    const confirmedBalance = 0;
+    const unconfirmedBalance = 0;
+    const totalBalance = confirmedBalance + unconfirmedBalance;
+    const totalBalanceBtc = totalBalance / 100000000; // Convert satoshis to BTC
+    const addressCount = 0; // Count of addresses with balance
+    
+    return {
+      walletId,
+      confirmedBalance,
+      unconfirmedBalance,
+      totalBalance,
+      totalBalanceBtc,
+      addressCount,
+      lastUpdated: new Date().toISOString(),
+    };
   }
 
-  async signTransaction(addressId: number, transactionData: any): Promise<string> {
-
-
+  async signTransaction(addressId: number, transactionData: any): Promise<{ addressId: number; signedTransaction: string; transactionHash: string; transactionSize: number; signedAt: string }> {
     const ECPair: ecPair.ECPairAPI = ecPair.ECPairFactory(ecc);
     // Get address with private key
     const [address] = await this.drizzle.db
@@ -175,9 +225,6 @@ export class HdWalletService {
 
     // Decrypt private key
     const privateKeyWIF = this.encryption.decrypt(address.privateKey);
-  
-
-
     const keyPair = ECPair.fromWIF(privateKeyWIF);
 
     // Sign transaction (implementation depends on transaction structure)
@@ -188,7 +235,17 @@ export class HdWalletService {
     psbt.signInput(0, keyPair);
     psbt.finalizeAllInputs();
     
-    return psbt.extractTransaction().toHex();
+    const signedTx = psbt.extractTransaction();
+    const signedTransaction = signedTx.toHex();
+    const transactionHash = signedTx.getId();
+    
+    return {
+      addressId,
+      signedTransaction,
+      transactionHash,
+      transactionSize: signedTransaction.length / 2, // hex string length / 2 = bytes
+      signedAt: new Date().toISOString(),
+    };
   }
 
   async restoreWallet(mnemonic: string, name: string, passphrase?: string): Promise<any> {

@@ -6,8 +6,22 @@ import {
   Body, 
   Param, 
   Logger,
-  UseFilters
+  UseFilters,
+  HttpStatus,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiBody,
+  ApiExtraModels,
+  getSchemaPath,
+  ApiProduces,
+  ApiConsumes,
+  ApiBearerAuth,
+  ApiSecurity,
+} from '@nestjs/swagger';
 import { VaultService } from './vault.service';
 import { VaultExceptionFilter } from './vault-exception.filter';
 import { 
@@ -24,14 +38,59 @@ import {
   VaultHealthStatus
 } from './vault.dto';
 
+@ApiTags('vault')
 @Controller('vault')
 @UseFilters(VaultExceptionFilter)
+@ApiExtraModels(
+  WriteSecretDto,
+  EncryptDataDto,
+  DecryptDataDto,
+  DatabaseCredentialsDto,
+  TransitKeyDto,
+  CreatePolicyDto,
+  VaultAuth,
+  DatabaseCredentials,
+  EncryptionResult,
+  DecryptionResult,
+  VaultHealthStatus,
+)
+@ApiProduces('application/json')
+@ApiConsumes('application/json')
+@ApiSecurity('vault-token')
 export class VaultController {
   private readonly logger = new Logger(VaultController.name);
   
   constructor(private readonly vaultService: VaultService) {}
 
   @Get('health')
+  @ApiOperation({
+    summary: 'Check Vault health status',
+    description: 'Returns comprehensive health information about the HashiCorp Vault instance, including seal status, initialization state, and cluster information.',
+    operationId: 'getVaultHealth',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Vault health status retrieved successfully',
+    schema: {
+      $ref: getSchemaPath(VaultHealthStatus),
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.SERVICE_UNAVAILABLE,
+    description: 'Vault is unavailable, sealed, or not initialized',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 503 },
+        message: { type: 'string', example: 'Vault service unavailable' },
+        error: { type: 'string', example: 'Service Unavailable' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Invalid or missing Vault authentication token',
+  })
   async getHealth(): Promise<VaultHealthStatus> {
     this.logger.log('Checking Vault health status');
     try {
@@ -43,6 +102,22 @@ export class VaultController {
   }
 
   @Get('status')
+  @ApiOperation({
+    summary: 'Get simplified Vault status',
+    description: 'Returns a simplified boolean status indicating whether Vault is healthy and accessible for operations.',
+    operationId: 'getVaultStatus',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Vault status retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        healthy: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Vault is healthy and accessible' },
+      },
+    },
+  })
   async getStatus(): Promise<{ healthy: boolean; message: string }> {
     this.logger.log('Checking Vault service status');
     try {

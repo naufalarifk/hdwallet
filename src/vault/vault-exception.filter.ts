@@ -6,7 +6,7 @@ import {
   HttpStatus, 
   Logger 
 } from '@nestjs/common';
-import { Request, Response } from 'express';
+import e, { Request, Response } from 'express';
 
 @Catch()
 export class VaultExceptionFilter implements ExceptionFilter {
@@ -57,6 +57,11 @@ export class VaultExceptionFilter implements ExceptionFilter {
         status = HttpStatus.REQUEST_TIMEOUT;
         message = 'Vault request timeout';
         errorCode = 'VAULT_TIMEOUT';
+      }
+      else if (errorMessage.includes('undefined')) {
+        status = HttpStatus.SERVICE_UNAVAILABLE;
+        message = 'Vault instance is not available';
+        errorCode = 'VAULT_INSTANCE_UNAVAILABLE';
       } else {
         message = exception.message;
       }

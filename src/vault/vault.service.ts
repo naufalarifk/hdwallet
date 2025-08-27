@@ -8,12 +8,10 @@ import {
   DecryptionResult, 
   VaultHealthStatus
 } from './vault.dto';
-import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 
 @Injectable()
 export class VaultService implements OnModuleInit, OnModuleDestroy {
-  @Inject(WINSTON_MODULE_PROVIDER)
-  private readonly logger: Logger;
+  private readonly logger = new Logger(VaultService.name);
 
   private vaultClient: any;
   private tokenRenewalTimer: NodeJS.Timeout;
@@ -126,8 +124,9 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
   }
 
   async healthCheck(): Promise<VaultHealthStatus> {
+    const health = await this.vaultClient.health();
+    
     try {
-      const health = await this.vaultClient.health();
       this.logger.debug('Vault health check successful');
       return health;
     } catch (error) {
