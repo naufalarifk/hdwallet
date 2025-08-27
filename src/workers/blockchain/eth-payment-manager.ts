@@ -1,6 +1,7 @@
 import { decodeEventLog, encodeEventTopics, isHex, parseAbi } from 'viem';
 import { fetchRpcUrl } from './eth-rpc';
 import type { Address, Hex, PublicClient } from 'viem'
+import { unknownErrorToString } from 'src/utils/error';
 
 export const paymentManagerAbi = parseAbi([
   'error UnauthorizedError(address expected, address actual)',
@@ -57,12 +58,17 @@ export async function getEthPaymentManagerDepositedEvents(
     eventName: 'Deposited',
   });
 
-  const logs = await fetchRpcUrl({client, undefined, 'eth_getLogs', [{
-    fromBlock: `0x${fromBlock.toString(16)}`,
-    toBlock: `0x${toBlock.toString(16)}`,
-    address: paymentManagerAddress,
-    topics: [topic],
-  }]});
+  const logs = await fetchRpcUrl({
+    client,
+    optionalReqId: undefined,
+    method: 'eth_getLogs',
+    params: [{
+      fromBlock: `0x${fromBlock.toString(16)}`,
+      toBlock: `0x${toBlock.toString(16)}`,
+      address: paymentManagerAddress,
+      topics: [topic],
+    }]
+  });
 
   if (typeof logs !== 'object' || logs === null) {
     throw new Error(`Expect logs to be an object, got ${unknownErrorToString(logs)}`);
@@ -99,8 +105,7 @@ export async function getEthPaymentManagerDepositedEvents(
       if (!isHex(signature)) {
         throw new Error(`Expect log.topics[0] to be a string, got ${unknownErrorToString(signature)}`);
       }
-      /** @type {[signature: import('viem').Hex, ...args: Array<import('viem').Hex>]} */
-      const topics = [signature];
+      const topics: [signature: `0x${string}`, ...args: any[]] = [signature];
       for (const topic of log.topics.slice(1)) {
         if (!isHex(topic)) {
           throw new Error(`Expect log.topics to be a string, got ${unknownErrorToString(topic)}`);

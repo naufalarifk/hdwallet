@@ -1,11 +1,12 @@
-import { Controller, Post, Get, Body, Param, ParseIntPipe, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, ParseIntPipe, Logger, Inject } from '@nestjs/common';
 import { HdWalletService } from './hdwallet.service';
 import { CreateWalletDto, RestoreWalletDto, CreateAccountDto, GenerateAddressDto, SignTransactionDto } from './hdwalletdto';
+import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 
 @Controller('wallet')
 export class WalletController {
-  private readonly logger = new Logger(WalletController.name);
-
+  @Inject(WINSTON_MODULE_PROVIDER)
+  private readonly logger: Logger;
   constructor(private readonly walletService: HdWalletService) {}
 
 

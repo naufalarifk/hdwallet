@@ -2,13 +2,16 @@ import { Injectable, Inject } from '@nestjs/common';
 import { fetchRpcUrl, getBlockNumber } from './blockchain/eth-rpc';
 import type { PublicClient, Hash, Hex, Address, TransactionRequest } from 'viem';
 import { BLOCKCHAIN_CLIENT } from './providers/blockchain.provider';
+import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
+import { Logger } from 'winston';
 
 @Injectable()
 export class WorkersService {
   constructor(
     @Inject(BLOCKCHAIN_CLIENT)
-    private readonly client: PublicClient
-
+    private readonly client: PublicClient,
+    @Inject(WINSTON_MODULE_PROVIDER)
+    private readonly logger: Logger
   ) {}
 
   async fetchRpcData() {
@@ -19,9 +22,10 @@ export class WorkersService {
         method: 'eth_blockNumber',
         params: []
       });
+      this.logger.info('RPC data fetched successfully:', data);
       return data;
     } catch (error) {
-      console.error('Error fetching RPC data:', error);
+      this.logger.error('Error fetching RPC data:', error);
       throw new Error('Failed to fetch blockchain data');
     }
   }

@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, HttpException, HttpStatus, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as vault from 'node-vault';
 import { 
@@ -8,10 +8,13 @@ import {
   DecryptionResult, 
   VaultHealthStatus
 } from './vault.dto';
+import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 
 @Injectable()
 export class VaultService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(VaultService.name);
+  @Inject(WINSTON_MODULE_PROVIDER)
+  private readonly logger: Logger;
+
   private vaultClient: any;
   private tokenRenewalTimer: NodeJS.Timeout;
   private isInitialized = false;

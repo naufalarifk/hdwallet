@@ -1,10 +1,12 @@
-import { Controller, Post, Get, Body, Param, ParseIntPipe, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, ParseIntPipe, Logger, Inject } from '@nestjs/common';
 import { WorkersService } from './workers.service';
+import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 
 
 @Controller('worker')
 export class WorkersController {
-  private readonly logger = new Logger(WorkersController.name)
+  @Inject(WINSTON_MODULE_PROVIDER)
+  private readonly logger: Logger;
     constructor(
         private readonly workersService: WorkersService,
 
