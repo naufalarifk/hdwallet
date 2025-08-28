@@ -1,11 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { DrizzleService } from '../database/drizzle.service';
 import { EncryptionService } from '../encryption/encription.service';
-import {BIP32Factory} from 'bip32';
+import {  DiscoveryService } from '@nestjs/core';
+import { BIP32Factory } from 'bip32';
+import * as accs from 'viem/accounts'
 import * as ecPair from 'ecpair'
 import * as ecc from 'tiny-secp256k1'
 import * as bip39 from 'bip39';
 import * as bitcoin from 'bitcoinjs-lib';
+import { ed25519} from '@noble/curves/ed25519.js';
+import { Keypair } from '@solana/web3.js';
 import { wallets, accounts, addresses } from '../database/schema';
 import { eq } from 'drizzle-orm';
 import { WalletCreateResult, AccountResult } from '../types/database';
@@ -18,12 +22,34 @@ import * as btc from '@scure/btc-signer';
 
 type AllowedKeyEntropyBits = 128 | 256;
 
+    type GenerateWalletResult = {
+      addresses: {
+        btc: string;
+        eth: `0x${string}`;
+        solana: string;
+      }
+      index: number;
+      publicKey: string;
+      privateKey: string;
+      derivationPath: string;
+    }
+
 @Injectable()
 export class HdWalletService {
   constructor(
     private readonly drizzle: DrizzleService,
     private readonly encryption: EncryptionService,
-  ) { }
+    private readonly discoveryService: DiscoveryService
+  ) {
+    const providers = this.discoveryService.getProviders();
+    console.log({ providers })
+    const controllers = this.discoveryService.getControllers();
+    console.log({
+      controllers
+    })
+   }
+
+
   
   validateMnemonic(mnemonic: string): boolean {
     return validateMnemonic(mnemonic, wordlist);
@@ -103,32 +129,69 @@ return {
 
 
 
-async generateWalletElaborate(){
-const count = 5;
-const addresses: { index: number; address: string; publicKey: string; privateKey: string; derivationPath: string; }[] = [];
-    const mnemonic = this.generateAddressFromSecure();
-    const validatedMnemonic = validateMnemonic(mnemonic, wordlist);
-    if (!validatedMnemonic) {
+async generateWalletElaborate(): Promise<GenerateWalletResult[]> {
+  const count = 5;
+  const addresses: GenerateWalletResult[] = [];
+  const mnemonic = this.generateAddressFromSecure();
+  const validatedMnemonic = validateMnemonic(mnemonic, wordlist);
+  if (!validatedMnemonic) {
       throw new Error('Invalid mnemonic');
     }
 const seed = await mnemonicToSeed(mnemonic);
-const hdkey = HDKey.fromMasterSeed(seed);
+  const hdkey = HDKey.fromMasterSeed(seed);
+  
+
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  // m / purpose' / coin_type' / account' / change / address_index                                          //
+  // refs: https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki                                   //
+  // coin types: https://bip-utils.readthedocs.io/en/stable/bip_utils/slip/slip44/slip44.html               //
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  // USE THIS METHOD, ADD NEW FUNC TO ENABLE MULTIPLE ADDRESS ASIDE FROM BTC
+  
     for (let i = 0; i < count; i++) {
-      const childKey = hdkey.derive(`m/44'/0'/0'/0/${i}`);
-      
-      if (!childKey.privateKey) {
+      const btcChildKey = hdkey.derive(`m/44'/0'/0'/0/${i}`);
+
+      if (!btcChildKey.privateKey) {
         throw new Error('Failed to derive private key');
       }
 
 
-      const payment = btc.p2pkh(childKey.publicKey ?? Buffer.alloc(0));
+      const { address: btcAddress } = btc.p2pkh(btcChildKey.publicKey ?? Buffer.alloc(0));
+
+      const ethDerivationPath = `m/44'/60'/0'/0/${i}`;
+      const ethChildKey = hdkey.derive(ethDerivationPath);
+
+    if (!ethChildKey.privateKey) {
+      throw new Error('Failed to derive Ethereum private key');
+    }
+    
+      const ethAddress = accs.privateKeyToAddress(`0x${Buffer.from(ethChildKey.privateKey).toString('hex')}`);
+      
+
+    // Solana derivation - uses Ed25519 and different derivation path
+    const solanaDerivationPath = `m/44'/501'/0'/0/${i}`;
+    const solanaChildKey = hdkey.derive(solanaDerivationPath);
+    
+    if (!solanaChildKey.privateKey) {
+      throw new Error('Failed to derive Solana private key');
+    }
+    
+    // Convert to 32-byte seed for Solana
+    const solanaSeed = solanaChildKey.privateKey.slice(0, 32);
+    const solanaKeypair = Keypair.fromSeed(solanaSeed);
+      const solanaAddress = solanaKeypair.publicKey.toBase58();
       
       addresses.push({
+        addresses: {
+          btc: btcAddress,
+          eth: ethAddress,
+          solana: solanaAddress
+        },
         index: i,
-        address: payment.address,
-        publicKey: Buffer.from(childKey.publicKey ?? Buffer.alloc(0)).toString('hex'),
-        privateKey: Buffer.from(childKey.privateKey).toString('hex'),
-        derivationPath: `m/44'/0'/0'/0/${i}`
+        publicKey: Buffer.from(btcChildKey.publicKey ?? Buffer.alloc(0)).toString('hex'),
+        privateKey: Buffer.from(btcChildKey.privateKey).toString('hex'),
+        derivationPath: `m/44'/0'/0'/0/${i}`,
       });
     }
 

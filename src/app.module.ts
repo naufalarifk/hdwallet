@@ -5,9 +5,11 @@ import { VaultModule } from './vault/vault.module';
 import { OcrModule } from './ocr/ocr.module';
 import { DatabaseModule } from './database/database.module';
 import { WorkersModule } from './workers/workers.module';
+import { CryptoModule } from './crypto/crypto.module';
+import { InvoiceModule } from './invoice/invoice.module';
 
 @Module({
-  imports: [DatabaseModule, WalletModule, CommonModule, VaultModule, OcrModule, WorkersModule],
+  imports: [DatabaseModule, WalletModule, CommonModule, VaultModule, OcrModule, WorkersModule, CryptoModule, InvoiceModule],
   controllers: [],
   providers: [],
 })

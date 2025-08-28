@@ -80,6 +80,7 @@ async function bootstrap() {
   
   logger.log(`Application is running on: http://localhost:${port}`);
   logger.log(`Swagger API documentation is available at: http://localhost:${port}/api-docs`);
+  logger.log(`Swagger API documentation is available at: http://localhost:${port}/api-docs`);
 }
 
 bootstrap().catch((error) => {
