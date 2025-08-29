@@ -1,7 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { HdWalletService } from '../hdwallet.service';
+
 import { DrizzleService } from '../../database/drizzle.service';
 import { EncryptionService } from '../../encryption/encription.service';
+import { HdWalletService } from '../hdwallet.service';
 
 describe('HdWalletService', () => {
   let service: HdWalletService;
@@ -12,36 +13,40 @@ describe('HdWalletService', () => {
     // Setup mock query builder chains
     const mockSelectQuery = {
       from: jest.fn().mockReturnThis(),
-      where: jest.fn().mockResolvedValue([{
-        id: 1,
-        name: 'Test Wallet',
-        mnemonic: 'encrypted_test_mnemonic',
-        seed: 'encrypted_test_seed',
-        masterPrivateKey: 'encrypted_32_byte_hex_string_here_abcdef1234567890',
-        masterPublicKey: 'test_master_public_key',
-        derivationPath: "m/44'/0'/0'",
-        network: 'testnet',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }]),
+      where: jest.fn().mockResolvedValue([
+        {
+          id: 1,
+          name: 'Test Wallet',
+          mnemonic: 'encrypted_test_mnemonic',
+          seed: 'encrypted_test_seed',
+          masterPrivateKey: 'encrypted_32_byte_hex_string_here_abcdef1234567890',
+          masterPublicKey: 'test_master_public_key',
+          derivationPath: "m/44'/0'/0'",
+          network: 'testnet',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]),
       orderBy: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),
     };
 
     const mockInsertQuery = {
       values: jest.fn().mockReturnThis(),
-      returning: jest.fn().mockResolvedValue([{
-        id: 1,
-        name: 'Test Wallet',
-        mnemonic: 'encrypted_test_mnemonic',
-        seed: 'encrypted_test_seed',
-        masterPrivateKey: 'encrypted_master_private_key',
-        masterPublicKey: 'test_master_public_key',
-        derivationPath: "m/44'/0'/0'",
-        network: 'testnet',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }]),
+      returning: jest.fn().mockResolvedValue([
+        {
+          id: 1,
+          name: 'Test Wallet',
+          mnemonic: 'encrypted_test_mnemonic',
+          seed: 'encrypted_test_seed',
+          masterPrivateKey: 'encrypted_master_private_key',
+          masterPublicKey: 'test_master_public_key',
+          derivationPath: "m/44'/0'/0'",
+          network: 'testnet',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]),
     };
 
     // Mock DrizzleService with proper db structure
@@ -69,8 +74,8 @@ describe('HdWalletService', () => {
 
     // Mock EncryptionService with proper 32-byte hex strings
     mockEncryptionService = {
-      encrypt: jest.fn().mockImplementation((data) => `encrypted_${data}`),
-      decrypt: jest.fn().mockImplementation((data) => {
+      encrypt: jest.fn().mockImplementation(data => `encrypted_${data}`),
+      decrypt: jest.fn().mockImplementation(data => {
         if (data.includes('abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890')) {
           return 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890'; // 64 char hex = 32 bytes
         }
@@ -106,16 +111,18 @@ describe('HdWalletService', () => {
   describe('createWallet', () => {
     it('should create a new wallet successfully', async () => {
       const walletName = 'Test Wallet';
-      
+
       // Mock the insert query to return a wallet
-      mockDrizzleService.db.insert().returning.mockResolvedValue([{
-        id: 1,
-        name: walletName,
-        mnemonic: 'encrypted_test_mnemonic',
-        seed: 'encrypted_test_seed',
-        masterPrivateKey: 'encrypted_master_private_key',
-        masterPublicKey: 'test_master_public_key',
-      }]);
+      mockDrizzleService.db.insert().returning.mockResolvedValue([
+        {
+          id: 1,
+          name: walletName,
+          mnemonic: 'encrypted_test_mnemonic',
+          seed: 'encrypted_test_seed',
+          masterPrivateKey: 'encrypted_master_private_key',
+          masterPublicKey: 'test_master_public_key',
+        },
+      ]);
 
       // Mock createAccount to return an account
       jest.spyOn(service, 'createAccount').mockResolvedValue({
@@ -128,7 +135,6 @@ describe('HdWalletService', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
       } as any);
-
       const result = await service.createWallet(walletName);
 
       expect(result).toHaveProperty('walletId', 1);
@@ -140,18 +146,21 @@ describe('HdWalletService', () => {
 
   describe('restoreWallet', () => {
     it('should restore wallet from mnemonic', async () => {
-      const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+      const mnemonic =
+        'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
       const walletName = 'Restored Wallet';
 
       // Mock the insert query to return a wallet
-      mockDrizzleService.db.insert().returning.mockResolvedValue([{
-        id: 1,
-        name: walletName,
-        mnemonic: 'encrypted_test_mnemonic',
-        seed: 'encrypted_test_seed',
-        masterPrivateKey: 'encrypted_master_private_key',
-        masterPublicKey: 'test_master_public_key',
-      }]);
+      mockDrizzleService.db.insert().returning.mockResolvedValue([
+        {
+          id: 1,
+          name: walletName,
+          mnemonic: 'encrypted_test_mnemonic',
+          seed: 'encrypted_test_seed',
+          masterPrivateKey: 'encrypted_master_private_key',
+          masterPublicKey: 'test_master_public_key',
+        },
+      ]);
 
       const result = await service.restoreWallet(mnemonic, walletName);
 
@@ -170,22 +179,30 @@ describe('HdWalletService', () => {
       const accountName = 'Test Account';
 
       // Mock wallet selection
-      mockDrizzleService.db.select().from().where.mockResolvedValue([{
-        id: walletId,
-        masterPrivateKey: 'encrypted_abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
-      }]);
+      mockDrizzleService.db
+        .select()
+        .from()
+        .where.mockResolvedValue([
+          {
+            id: walletId,
+            masterPrivateKey:
+              'encrypted_abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
+          },
+        ]);
 
       // Mock account insertion
-      mockDrizzleService.db.insert().returning.mockResolvedValue([{
-        id: 1,
-        walletId,
-        accountIndex,
-        name: accountName,
-        extendedPublicKey: 'test_extended_public_key',
-        extendedPrivateKey: 'encrypted_extended_private_key',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }]);
+      mockDrizzleService.db.insert().returning.mockResolvedValue([
+        {
+          id: 1,
+          walletId,
+          accountIndex,
+          name: accountName,
+          extendedPublicKey: 'test_extended_public_key',
+          extendedPrivateKey: 'encrypted_extended_private_key',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]);
 
       const result = await service.createAccount(walletId, accountIndex, accountName);
 
@@ -204,8 +221,9 @@ describe('HdWalletService', () => {
       // Mock empty wallet selection
       mockDrizzleService.db.select().from().where.mockResolvedValue([]);
 
-      await expect(service.createAccount(walletId, accountIndex))
-        .rejects.toThrow('Wallet not found');
+      await expect(service.createAccount(walletId, accountIndex)).rejects.toThrow(
+        'Wallet not found',
+      );
     });
   });
 
@@ -221,11 +239,9 @@ describe('HdWalletService', () => {
         derivationPath: "m/44'/0'/0'/0/0",
         address: '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2',
         publicKey: '03ad1d8e89212f0b92c74d23bb710c00662451716a435b97381e4e235e7b31a5',
-        privateKey: 'encrypted_private_key',
         isChange: false,
         addressIndex: 0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date().toISOString(),
       });
 
       const result = await service.generateAddress(accountId, isChange);
@@ -242,8 +258,7 @@ describe('HdWalletService', () => {
       // Mock empty account selection
       mockDrizzleService.db.select().from().where.mockResolvedValue([]);
 
-      await expect(service.generateAddress(accountId))
-        .rejects.toThrow('Account not found');
+      await expect(service.generateAddress(accountId)).rejects.toThrow('Account not found');
     });
   });
 });

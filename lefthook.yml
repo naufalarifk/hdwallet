@@ -3,11 +3,22 @@
 
 pre-commit:
   commands:
-    # Format & Lint with Biome
+    # TypeScript type checking - fail commit on errors
+    tsc-check:
+      run: pnpm tsc --noEmit
+      fail_text: "❌ TypeScript compilation failed. Please fix type errors before committing."
+
+    # Format & Lint with Biome - fail commit on unfixable errors
     biome-check:
       glob: "*.{js,ts,json,tsx,jsx,mjs,cjs}"
       run: pnpm biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
       stage_fixed: true
+      fail_text: "❌ Biome found unfixable linting errors. Please fix them before committing."
+
+    # Run tests if they exist
+    # test:
+    #   run: pnpm test --passWithNoTests
+    #   fail_text: "❌ Tests failed. Please fix failing tests before committing."
 
 commit-msg:
   commands:
