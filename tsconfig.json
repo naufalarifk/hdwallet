@@ -22,5 +22,6 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false
   },
-  "files": ["commitlint.config.js"]
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist", "*.js"]
 }
