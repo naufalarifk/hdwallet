@@ -12,7 +12,7 @@ pre-commit:
 commit-msg:
   commands:
     commitlint:
-      run: pnpm dlx commitlint --config commitlint.config.js --edit "{1}"
+      run: pnpm dlx commitlint --config commitlint.config.ts --edit "{1}"
 
 pre-push:
   commands:
