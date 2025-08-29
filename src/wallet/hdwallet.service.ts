@@ -147,7 +147,7 @@ const seed = await mnemonicToSeed(mnemonic);
   // refs: https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki                                   //
   // coin types: https://bip-utils.readthedocs.io/en/stable/bip_utils/slip/slip44/slip44.html               //
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  // USE THIS METHOD, ADD NEW FUNC TO ENABLE MULTIPLE ADDRESS ASIDE FROM BTC
+  // USE THIS METHOD, ADD NEW FUNC TO ENABLE MULTIPLE ADDRESSES ASIDE FROM BTC
   
     for (let i = 0; i < count; i++) {
       const btcChildKey = hdkey.derive(`m/44'/0'/0'/0/${i}`);
