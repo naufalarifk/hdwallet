@@ -1,44 +1,44 @@
-import { 
-  Controller, 
-  Post, 
-  Get, 
-  Body, 
-  Param, 
-  ParseIntPipe, 
-  Logger, 
-  Inject,
-  HttpStatus,
+import {
+  Body,
+  Controller,
+  Get,
   HttpException,
+  HttpStatus,
+  Inject,
+  Logger,
+  Param,
+  ParseIntPipe,
+  Post,
   UseFilters,
 } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
   ApiBody,
-  ApiExtraModels,
-  getSchemaPath,
-  ApiProduces,
   ApiConsumes,
+  ApiExtraModels,
+  ApiOperation,
+  ApiParam,
+  ApiProduces,
+  ApiResponse,
+  ApiTags,
+  getSchemaPath,
 } from '@nestjs/swagger';
+import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
+
 import { HdWalletService } from './hdwallet.service';
-import { WalletExceptionFilter } from './wallet-exception.filter';
-import { 
-  CreateWalletDto, 
-  RestoreWalletDto, 
-  CreateAccountDto, 
-  GenerateAddressDto, 
-  SignTransactionDto,
-  WalletResponseDto,
+import {
   AccountResponseDto,
   AddressResponseDto,
   BalanceResponseDto,
-  SignatureResponseDto,
+  CreateAccountDto,
+  CreateWalletDto,
+  GenerateAddressDto,
   HealthResponseDto,
+  RestoreWalletDto,
+  SignatureResponseDto,
+  SignTransactionDto,
+  WalletResponseDto,
 } from './hdwalletdto';
-import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
-
+import { WalletExceptionFilter } from './wallet-exception.filter';
 
 //to-do refactor code to be readable
 
@@ -61,10 +61,11 @@ export class WalletController {
 
   constructor(private readonly walletService: HdWalletService) {}
 
-    @Get('health')
+  @Get('health')
   @ApiOperation({
     summary: 'Health check for wallet service',
-    description: 'Returns the current status and health of the wallet service. Used for monitoring and load balancer health checks.',
+    description:
+      'Returns the current status and health of the wallet service. Used for monitoring and load balancer health checks.',
     operationId: 'getWalletHealth',
   })
   @ApiResponse({
@@ -76,14 +77,12 @@ export class WalletController {
   })
   getHealth(): HealthResponseDto {
     this.logger.log('Health check requested');
-    return { 
-      status: 'ok', 
+    return {
+      status: 'ok',
       message: 'Wallet service is healthy',
       timestamp: new Date().toISOString(),
     };
   }
-
-
 
   @Post('generate')
   async generateWallet() {
@@ -98,7 +97,8 @@ export class WalletController {
   @Post('create')
   @ApiOperation({
     summary: 'Create a new HD wallet',
-    description: 'Creates a new hierarchical deterministic (HD) wallet with a generated mnemonic phrase. The mnemonic is securely encrypted and stored in Vault.',
+    description:
+      'Creates a new hierarchical deterministic (HD) wallet with a generated mnemonic phrase. The mnemonic is securely encrypted and stored in Vault.',
     operationId: 'createWallet',
   })
   @ApiBody({
@@ -147,7 +147,8 @@ export class WalletController {
   @Post('restore')
   @ApiOperation({
     summary: 'Restore HD wallet from mnemonic',
-    description: 'Restores an existing HD wallet using a BIP39 mnemonic phrase. The mnemonic is validated and the wallet is recreated with all its derivation paths.',
+    description:
+      'Restores an existing HD wallet using a BIP39 mnemonic phrase. The mnemonic is validated and the wallet is recreated with all its derivation paths.',
     operationId: 'restoreWallet',
   })
   @ApiBody({
@@ -157,7 +158,8 @@ export class WalletController {
       basic: {
         summary: 'Basic wallet restoration',
         value: {
-          mnemonic: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+          mnemonic:
+            'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
           name: 'Restored Wallet',
           passphrase: 'optional-bip39-passphrase',
         },
@@ -165,7 +167,8 @@ export class WalletController {
       noPassphrase: {
         summary: 'Restore without passphrase',
         value: {
-          mnemonic: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+          mnemonic:
+            'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
           name: 'Simple Restored Wallet',
         },
       },
@@ -199,7 +202,8 @@ export class WalletController {
   @Post(':walletId/accounts')
   @ApiOperation({
     summary: 'Create new account in wallet',
-    description: 'Creates a new account within an existing HD wallet using BIP44 derivation path. Each account can have multiple addresses.',
+    description:
+      'Creates a new account within an existing HD wallet using BIP44 derivation path. Each account can have multiple addresses.',
     operationId: 'createAccount',
   })
   @ApiParam({
@@ -252,7 +256,8 @@ export class WalletController {
   @Post('accounts/:accountId/addresses')
   @ApiOperation({
     summary: 'Generate new address for account',
-    description: 'Generates a new Bitcoin address for the specified account. Supports both receiving (external) and change (internal) addresses.',
+    description:
+      'Generates a new Bitcoin address for the specified account. Supports both receiving (external) and change (internal) addresses.',
     operationId: 'generateAddress',
   })
   @ApiParam({
@@ -309,10 +314,20 @@ export class WalletController {
     }
   }
 
+  @Post('/demonstrate')
+  demonstrateUsage() {
+    try {
+      return this.walletService.demonstrateUsage();
+    } catch (err: unknown) {
+      this.logger.error(`Failed to demonstrate usage:`, err);
+      throw new HttpException('Failed to demonstrate usage', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
   @Get(':walletId/balance')
   @ApiOperation({
     summary: 'Get wallet balance',
-    description: 'Retrieves the total balance for all accounts and addresses within the specified wallet.',
+    description:
+      'Retrieves the total balance for all accounts and addresses within the specified wallet.',
     operationId: 'getWalletBalance',
   })
   @ApiParam({
@@ -348,7 +363,8 @@ export class WalletController {
   @Post('addresses/:addressId/sign')
   @ApiOperation({
     summary: 'Sign transaction with address private key',
-    description: 'Signs a Bitcoin transaction using the private key associated with the specified address. The transaction data should be in raw format.',
+    description:
+      'Signs a Bitcoin transaction using the private key associated with the specified address. The transaction data should be in raw format.',
     operationId: 'signTransaction',
   })
   @ApiParam({
@@ -382,7 +398,10 @@ export class WalletController {
   ): Promise<SignatureResponseDto> {
     this.logger.log(`Signing transaction for address ${addressId}`);
     try {
-      return await this.walletService.signTransaction(addressId, signTransactionDto.transactionData);
+      return await this.walletService.signTransaction(
+        addressId,
+        signTransactionDto.transactionData,
+      );
     } catch (error) {
       this.logger.error(`Failed to sign transaction for address ${addressId}:`, error);
       // Preserve the original error message if it's a known error type

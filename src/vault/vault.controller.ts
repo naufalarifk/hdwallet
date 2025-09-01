@@ -1,42 +1,43 @@
-import { 
-  Controller, 
-  Post, 
-  Get, 
+import {
+  Body,
+  Controller,
   Delete,
-  Body, 
-  Param, 
-  Logger,
-  UseFilters,
+  Get,
   HttpStatus,
+  Logger,
+  Param,
+  Post,
+  UseFilters,
 } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiBody,
-  ApiExtraModels,
-  getSchemaPath,
-  ApiProduces,
-  ApiConsumes,
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiExtraModels,
+  ApiOperation,
+  ApiParam,
+  ApiProduces,
+  ApiResponse,
   ApiSecurity,
+  ApiTags,
+  getSchemaPath,
 } from '@nestjs/swagger';
+
+import {
+  CreatePolicyDto,
+  DatabaseCredentials,
+  DatabaseCredentialsDto,
+  DecryptDataDto,
+  DecryptionResult,
+  EncryptDataDto,
+  EncryptionResult,
+  TransitKeyDto,
+  VaultAuth,
+  VaultHealthStatus,
+  WriteSecretDto,
+} from './vault.dto';
 import { VaultService } from './vault.service';
 import { VaultExceptionFilter } from './vault-exception.filter';
-import { 
-  WriteSecretDto, 
-  EncryptDataDto, 
-  DecryptDataDto, 
-  DatabaseCredentialsDto, 
-  TransitKeyDto, 
-  CreatePolicyDto,
-  VaultAuth,
-  DatabaseCredentials,
-  EncryptionResult,
-  DecryptionResult,
-  VaultHealthStatus
-} from './vault.dto';
 
 @ApiTags('vault')
 @Controller('vault')
@@ -59,13 +60,14 @@ import {
 @ApiSecurity('vault-token')
 export class VaultController {
   private readonly logger = new Logger(VaultController.name);
-  
+
   constructor(private readonly vaultService: VaultService) {}
 
   @Get('health')
   @ApiOperation({
     summary: 'Check Vault health status',
-    description: 'Returns comprehensive health information about the HashiCorp Vault instance, including seal status, initialization state, and cluster information.',
+    description:
+      'Returns comprehensive health information about the HashiCorp Vault instance, including seal status, initialization state, and cluster information.',
     operationId: 'getVaultHealth',
   })
   @ApiResponse({
@@ -95,7 +97,7 @@ export class VaultController {
     this.logger.log('Checking Vault health status');
     try {
       return await this.vaultService.healthCheck();
-    } catch (error: any) {
+    } catch (error) {
       this.logger.error('Health check failed', error.message);
       throw error;
     }
@@ -104,7 +106,8 @@ export class VaultController {
   @Get('status')
   @ApiOperation({
     summary: 'Get simplified Vault status',
-    description: 'Returns a simplified boolean status indicating whether Vault is healthy and accessible for operations.',
+    description:
+      'Returns a simplified boolean status indicating whether Vault is healthy and accessible for operations.',
     operationId: 'getVaultStatus',
   })
   @ApiResponse({
@@ -124,20 +127,20 @@ export class VaultController {
       const isHealthy = await this.vaultService.isHealthy();
       return {
         healthy: isHealthy,
-        message: isHealthy ? 'Vault is healthy and accessible' : 'Vault is not accessible'
+        message: isHealthy ? 'Vault is healthy and accessible' : 'Vault is not accessible',
       };
-    } catch (error: any) {
+    } catch (error) {
       this.logger.error('Status check failed', error.message);
       return {
         healthy: false,
-        message: `Vault status check failed: ${error.message}`
+        message: `Vault status check failed: ${error.message}`,
       };
     }
   }
 
   // Secret Management (KV v1)
   @Get('secret/:path')
-  async getSecret(@Param('path') path: string): Promise<any> {
+  async getSecret(@Param('path') path: string) {
     this.logger.log(`Getting secret from path: ${path}`);
     return await this.vaultService.getSecret(path);
   }
@@ -159,7 +162,7 @@ export class VaultController {
 
   // KV v2 Operations
   @Get('kv2/:path')
-  async getKv2Secret(@Param('path') path: string): Promise<any> {
+  async getKv2Secret(@Param('path') path: string): Promise<string> {
     this.logger.log(`Getting KV2 secret from path: ${path}`);
     return await this.vaultService.getKv2Secret(path);
   }
@@ -192,7 +195,7 @@ export class VaultController {
   @Post('transit/encrypt/:keyName')
   async encryptData(
     @Param('keyName') keyName: string,
-    @Body() dto: EncryptDataDto
+    @Body() dto: EncryptDataDto,
   ): Promise<EncryptionResult> {
     const { data, context } = dto;
     this.logger.log(`Encrypting data with key: ${keyName}`);
@@ -202,7 +205,7 @@ export class VaultController {
   @Post('transit/decrypt/:keyName')
   async decryptData(
     @Param('keyName') keyName: string,
-    @Body() dto: DecryptDataDto
+    @Body() dto: DecryptDataDto,
   ): Promise<DecryptionResult> {
     const { ciphertext, context } = dto;
     this.logger.log(`Decrypting data with key: ${keyName}`);
@@ -250,48 +253,54 @@ export class VaultController {
 
   // Wallet Integration Examples
   @Post('wallet/encrypt-mnemonic')
-  async encryptMnemonic(@Body() body: { mnemonic: string; walletId: string }): Promise<EncryptionResult> {
+  async encryptMnemonic(
+    @Body() body: { mnemonic: string; walletId: string },
+  ): Promise<EncryptionResult> {
     const { mnemonic, walletId } = body;
     this.logger.log(`Encrypting mnemonic for wallet: ${walletId}`);
-    
+
     // Create a unique encryption key for the wallet if it doesn't exist
     const keyName = `wallet-${walletId}`;
     try {
       await this.vaultService.createTransitKey(keyName);
       this.logger.log(`Created new transit key for wallet: ${keyName}`);
-    } catch (error: any) {
+    } catch (error) {
       // Key might already exist, which is fine
       if (!error.message.includes('path is already in use')) {
         throw error;
       }
     }
-    
+
     return await this.vaultService.encryptData(keyName, mnemonic, walletId);
   }
 
   @Post('wallet/decrypt-mnemonic')
-  async decryptMnemonic(@Body() body: { ciphertext: string; walletId: string }): Promise<DecryptionResult> {
+  async decryptMnemonic(
+    @Body() body: { ciphertext: string; walletId: string },
+  ): Promise<DecryptionResult> {
     const { ciphertext, walletId } = body;
     this.logger.log(`Decrypting mnemonic for wallet: ${walletId}`);
-    
+
     const keyName = `wallet-${walletId}`;
     return await this.vaultService.decryptData(keyName, ciphertext, walletId);
   }
 
   @Post('wallet/store-config')
-  async storeWalletConfig(@Body() body: { walletId: string; config: any }): Promise<{ message: string }> {
+  async storeWalletConfig(
+    @Body() body: { walletId: string; config: Record<string, string> },
+  ): Promise<{ message: string }> {
     const { walletId, config } = body;
     this.logger.log(`Storing configuration for wallet: ${walletId}`);
-    
+
     const path = `wallets/${walletId}/config`;
     await this.vaultService.writeKv2Secret(path, config);
     return { message: `Wallet configuration stored successfully for ${walletId}` };
   }
 
   @Get('wallet/:walletId/config')
-  async getWalletConfig(@Param('walletId') walletId: string): Promise<any> {
+  async getWalletConfig(@Param('walletId') walletId: string) {
     this.logger.log(`Getting configuration for wallet: ${walletId}`);
-    
+
     const path = `wallets/${walletId}/config`;
     return await this.vaultService.getKv2Secret(path);
   }

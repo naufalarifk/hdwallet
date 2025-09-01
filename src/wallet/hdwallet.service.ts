@@ -9,13 +9,24 @@ import {
 } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
 import * as btc from '@scure/btc-signer';
-import { Keypair } from '@solana/web3.js';
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  sendAndConfirmTransaction,
+  Transaction,
+} from '@solana/web3.js';
+import axios from 'axios';
 import { BIP32Factory } from 'bip32';
 import * as bip39 from 'bip39';
 import * as bitcoin from 'bitcoinjs-lib';
 import { eq } from 'drizzle-orm';
 import * as ecPair from 'ecpair';
+import { ECPairAPI, ECPairFactory, TinySecp256k1Interface } from 'ecpair';
+import { ethers } from 'ethers';
 import * as ecc from 'tiny-secp256k1';
+import * as tinysecp from 'tiny-secp256k1';
 import * as accs from 'viem/accounts';
 
 import { DrizzleService } from '../database/drizzle.service';
@@ -24,6 +35,7 @@ import { EncryptionService } from '../encryption/encription.service';
 import { AccountResult, WalletCreateResult } from '../types/database';
 import { AddressResponseDto, SignatureResponseDto, WalletResponseDto } from './hdwalletdto';
 
+//to-do:
 type AllowedKeyEntropyBits = 128 | 256;
 
 type GenerateWalletResult = {
@@ -33,24 +45,179 @@ type GenerateWalletResult = {
     solana: string;
   };
   index: number;
-  publicKey: string;
-  privateKey: string;
-  derivationPath: string;
+  publicKeys: {
+    btc: string;
+    eth: string;
+    solana: string;
+  };
+  privateKeys: {
+    btc: string;
+    eth: string;
+    solana: string;
+  };
+  derivationPaths: {
+    btc: string;
+    eth: string;
+    solana: string;
+  };
 };
+
+interface WalletConfig {
+  network: 'mainnet' | 'testnet';
+  rpcEndpoints: {
+    bitcoin: string;
+    ethereum: string;
+    solana: string;
+  };
+}
+
+interface TransactionParams {
+  to: string;
+  amount: number; // in base units (satoshis, wei, lamports)
+  from?: string;
+}
+
+class MultiChainWallet {
+  private config: WalletConfig;
+  private connections: {
+    solana?: Connection;
+    ethereum?: ethers.JsonRpcProvider;
+  } = {};
+
+  constructor(config: WalletConfig) {
+    this.config = config;
+    this.initializeConnections();
+  }
+
+  private initializeConnections() {
+    this.connections.solana = new Connection(this.config.rpcEndpoints.solana, 'confirmed');
+
+    this.connections.ethereum = new ethers.JsonRpcProvider(this.config.rpcEndpoints.ethereum);
+
+    console.log('this.connection.ethereum', this.connections.ethereum);
+  }
+
+  async getSolanaBalance(address: string): Promise<number> {
+    if (!this.connections.solana) throw new Error('Solana connection not initialized');
+
+    const publicKey = new PublicKey(address);
+    const balance = await this.connections.solana.getBalance(publicKey);
+    return balance;
+  }
+
+  async sendSolanaTransaction(privateKeyHex: string, params: TransactionParams): Promise<string> {
+    if (!this.connections.solana) throw new Error('Solana connection not initialized');
+
+    const privateKeyBytes = Buffer.from(privateKeyHex, 'hex');
+    const keypair = Keypair.fromSecretKey(privateKeyBytes);
+
+    const transaction = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: keypair.publicKey,
+        toPubkey: new PublicKey(params.to),
+        lamports: params.amount,
+      }),
+    );
+
+    const signature = await sendAndConfirmTransaction(this.connections.solana, transaction, [
+      keypair,
+    ]);
+
+    return signature;
+  }
+
+  async getEthereumBalance(address: string): Promise<string> {
+    if (!this.connections.ethereum) throw new Error('Ethereum connection not initialized');
+
+    const balance = await this.connections.ethereum.getBalance(address);
+    return ethers.formatEther(balance);
+  }
+
+  async sendEthereumTransaction(privateKeyHex: string, params: TransactionParams): Promise<string> {
+    if (!this.connections.ethereum) throw new Error('Ethereum connection not initialized');
+
+    const wallet = new ethers.Wallet(`0x${privateKeyHex}`, this.connections.ethereum);
+
+    const [gasPrice, nonce] = await Promise.all([
+      this.connections.ethereum.getFeeData(),
+      this.connections.ethereum.getTransactionCount(wallet.address),
+    ]);
+
+    const transaction = {
+      to: params.to,
+      value: params.amount.toString(),
+      gasLimit: 21000,
+      gasPrice: gasPrice.gasPrice,
+      nonce: nonce,
+    };
+
+    const txResponse = await wallet.sendTransaction(transaction);
+    await txResponse.wait();
+
+    return txResponse.hash;
+  }
+
+  async getBitcoinBalance(address: string) {
+    // const postData = {
+    // 		method: 'gettxout', // The RPC method for getting address data
+    // 		params: [address], // The parameters for the method, in this case, the Bitcoin address
+    // 		id: 1,
+    // 		jsonrpc: '2.0',
+    // }
+
+    try {
+      const { data } = await axios.get(this.config.rpcEndpoints.bitcoin + `/address/${address}`, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        maxBodyLength: Infinity,
+      });
+      return data;
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  async getBalances(walletResult: GenerateWalletResult): Promise<{
+    btc: number;
+    eth: string;
+    solana: number;
+  }> {
+    const [btcBalance, ethBalance, solanaBalance] = await Promise.all([
+      this.getBitcoinBalance(walletResult.addresses.btc),
+      this.getEthereumBalance(walletResult.addresses.eth),
+      this.getSolanaBalance(walletResult.addresses.solana),
+    ]);
+
+    return {
+      btc: btcBalance,
+      eth: ethBalance,
+      solana: solanaBalance,
+    };
+  }
+}
 
 @Injectable()
 export class HdWalletService {
+  public wallet: MultiChainWallet;
   constructor(
     private readonly drizzle: DrizzleService,
     private readonly encryption: EncryptionService,
-    private readonly discoveryService: DiscoveryService,
   ) {
-    const providers = this.discoveryService.getProviders();
-    console.log({ providers });
-    const controllers = this.discoveryService.getControllers();
-    console.log({
-      controllers,
-    });
+    const network: 'mainnet' | 'testnet' = 'testnet';
+    const config = this.getNetworkConfig(network);
+    this.wallet = new MultiChainWallet(config);
+  }
+
+  private getNetworkConfig(network: 'mainnet' | 'testnet'): WalletConfig {
+    return {
+      network,
+      rpcEndpoints: {
+        bitcoin: 'https://blockstream.info/testnet/api',
+        ethereum: process.env.ETH_RPC_URL || 'https://sepolia.infura.io/v3/YOUR_PROJECT_ID',
+        solana: 'https://api.testnet.solana.com',
+      },
+    };
   }
 
   validateMnemonic(mnemonic: string): boolean {
@@ -78,43 +245,156 @@ export class HdWalletService {
     return _generateMnemonic(wordlist, entropy);
   }
 
+  async demonstrateUsage() {
+    try {
+      const wallets = await this.generateWalletElaborate();
+      const balances = await this.wallet.getBalances(wallets[0]);
+      console.log('Balances:', balances);
+      console.log('wallets', wallets);
+      return wallets[0];
+    } catch (error) {
+      console.error('Error generating wallets:', error);
+      throw error;
+    }
+  }
+
+  async generateWalletElaborate(): Promise<GenerateWalletResult[]> {
+    const count = 5;
+    const addresses: GenerateWalletResult[] = [];
+    const mnemonic = this.generateAddressFromSecure();
+    const validatedMnemonic = validateMnemonic(mnemonic, wordlist);
+
+    if (!validatedMnemonic) {
+      throw new Error('Invalid mnemonic');
+    }
+
+    const seed = await mnemonicToSeed(mnemonic);
+    const hdkey = HDKey.fromMasterSeed(seed);
+
+    for (let i = 0; i < count; i++) {
+      // Bitcoin derivation
+      const btcDerivationPath = `m/44'/0'/0'/0/${i}`;
+      const btcChildKey = hdkey.derive(btcDerivationPath);
+
+      if (!btcChildKey.privateKey) {
+        throw new Error('Failed to derive Bitcoin private key');
+      }
+
+      const { address: btcAddress } = btc.p2pkh(
+        btcChildKey.publicKey ?? Buffer.alloc(0),
+        btc.TEST_NETWORK,
+      );
+
+      // Ethereum derivation
+      const ethDerivationPath = `m/44'/60'/0'/0/${i}`;
+      const ethChildKey = hdkey.derive(ethDerivationPath);
+
+      if (!ethChildKey.privateKey) {
+        throw new Error('Failed to derive Ethereum private key');
+      }
+
+      const ethAddress = accs.privateKeyToAddress(
+        `0x${Buffer.from(ethChildKey.privateKey).toString('hex')}`,
+      );
+
+      // Solana derivation
+      const solanaDerivationPath = `m/44'/501'/0'/0/${i}`;
+      const solanaChildKey = hdkey.derive(solanaDerivationPath);
+
+      if (!solanaChildKey.privateKey) {
+        throw new Error('Failed to derive Solana private key');
+      }
+
+      const solanaSeed = solanaChildKey.privateKey.slice(0, 32);
+      const solanaKeypair = Keypair.fromSeed(solanaSeed);
+      const solanaAddress = solanaKeypair.publicKey.toBase58();
+
+      addresses.push({
+        addresses: {
+          btc: btcAddress,
+          eth: ethAddress,
+          solana: solanaAddress,
+        },
+        index: i,
+        publicKeys: {
+          btc: Buffer.from(btcChildKey.publicKey ?? Buffer.alloc(0)).toString('hex'),
+          eth: Buffer.from(ethChildKey.publicKey ?? Buffer.alloc(0)).toString('hex'),
+          solana: solanaKeypair.publicKey.toBase58(),
+        },
+        privateKeys: {
+          btc: Buffer.from(btcChildKey.privateKey).toString('hex'),
+          eth: Buffer.from(ethChildKey.privateKey).toString('hex'),
+          solana: Buffer.from(solanaKeypair.secretKey).toString('hex'),
+        },
+        derivationPaths: {
+          btc: btcDerivationPath,
+          eth: ethDerivationPath,
+          solana: solanaDerivationPath,
+        },
+      });
+    }
+
+    return addresses;
+  }
+
+  // Multi-chain transaction methods
+  // async sendMultiChainTransaction(
+  //   walletResult: GenerateWalletResult,
+  //   chain: 'btc' | 'eth' | 'solana',
+  //   params: TransactionParams
+  // ): Promise<string> {
+  //   switch (chain) {
+  //     case 'solana':
+  //       return this.wallet.sendSolanaTransaction(
+  //         walletResult.privateKeys.solana,
+  //         params
+  //       );
+
+  //     case 'eth':
+  //       return this.wallet.sendEthereumTransaction(
+  //         walletResult.privateKeys.eth,
+  //         params
+  //       );
+
+  //     case 'btc':
+  //       // Bitcoin requires more complex UTXO handling
+  //       throw new Error('Bitcoin transactions require UTXO management - use signTransaction method');
+
+  //     default:
+  //       throw new Error(`Unsupported chain: ${chain}`);
+  //   }
+  // }
+
+  // Get balances for all chains
+  // async getMultiChainBalances(walletResult: GenerateWalletResult) {
+  //   return this.wallet.getBalances(walletResult);
+  // }
+
+  // Existing methods with fixes...
   async generateWalletSimple() {
     const mnemonic = this.generateAddressFromSecure();
     const masterSeed = await mnemonicToSeed(mnemonic);
     const network_version = {
       mainnet: {
-        // zprv
         private: 0x04b2430c,
-        // zpub
         public: 0x04b24746,
       },
       testnet: {
-        // vprv
         private: 0x045f18bc,
-        // vpub
         public: 0x045f1cf6,
       },
     };
 
-    const hdkey = HDKey.fromMasterSeed(masterSeed, network_version.mainnet);
+    const hdkey = HDKey.fromMasterSeed(masterSeed, network_version.testnet); // Fixed: use testnet
 
     const receive_path = "m/84'/0'/0'/0/0";
-
-    // then we derive the receive node
     const receive_node = hdkey.derive(receive_path);
-
-    // then we get the address
     const receive_address = btc.getAddress('wpkh', receive_node.privateKey!);
 
-    // then we derive the next receive node
     const next_receive_node = receive_node.deriveChild(1);
 
-    // here is the change path
-    const change_path = "m/84'/0'/0'/1/0"; // note the 1
-
-    // then we derive the change node
+    const change_path = "m/84'/0'/0'/1/0";
     const change_node = hdkey.derive(change_path);
-    // same as above
     const change_address = btc.getAddress('wpkh', change_node.privateKey!);
 
     const next_change_node = change_node.deriveChild(1);
@@ -127,75 +407,6 @@ export class HdWalletService {
     };
   }
 
-  async generateWalletElaborate(): Promise<GenerateWalletResult[]> {
-    const count = 5;
-    const addresses: GenerateWalletResult[] = [];
-    const mnemonic = this.generateAddressFromSecure();
-    const validatedMnemonic = validateMnemonic(mnemonic, wordlist);
-    if (!validatedMnemonic) {
-      throw new Error('Invalid mnemonic');
-    }
-    const seed = await mnemonicToSeed(mnemonic);
-    const hdkey = HDKey.fromMasterSeed(seed);
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // m / purpose' / coin_type' / account' / change / address_index                                          //
-    // refs: https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki                                   //
-    // coin types: https://bip-utils.readthedocs.io/en/stable/bip_utils/slip/slip44/slip44.html               //
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // USE THIS METHOD, ADD NEW FUNC TO ENABLE MULTIPLE ADDRESSES ASIDE FROM BTC
-
-    for (let i = 0; i < count; i++) {
-      const btcChildKey = hdkey.derive(`m/44'/0'/0'/0/${i}`);
-
-      if (!btcChildKey.privateKey) {
-        throw new Error('Failed to derive private key');
-      }
-
-      const { address: btcAddress } = btc.p2pkh(btcChildKey.publicKey ?? Buffer.alloc(0));
-
-      const ethDerivationPath = `m/44'/60'/0'/0/${i}`;
-      const ethChildKey = hdkey.derive(ethDerivationPath);
-
-      if (!ethChildKey.privateKey) {
-        throw new Error('Failed to derive Ethereum private key');
-      }
-
-      const ethAddress = accs.privateKeyToAddress(
-        `0x${Buffer.from(ethChildKey.privateKey).toString('hex')}`,
-      );
-
-      // Solana derivation - uses Ed25519 and different derivation path
-      const solanaDerivationPath = `m/44'/501'/0'/0/${i}`;
-      const solanaChildKey = hdkey.derive(solanaDerivationPath);
-
-      if (!solanaChildKey.privateKey) {
-        throw new Error('Failed to derive Solana private key');
-      }
-
-      // Convert to 32-byte seed for Solana
-      const solanaSeed = solanaChildKey.privateKey.slice(0, 32);
-      const solanaKeypair = Keypair.fromSeed(solanaSeed);
-      const solanaAddress = solanaKeypair.publicKey.toBase58();
-
-      addresses.push({
-        addresses: {
-          btc: btcAddress,
-          eth: ethAddress,
-          solana: solanaAddress,
-        },
-        index: i,
-        publicKey: Buffer.from(btcChildKey.publicKey ?? Buffer.alloc(0)).toString('hex'),
-        privateKey: Buffer.from(btcChildKey.privateKey).toString('hex'),
-        derivationPath: `m/44'/0'/0'/0/${i}`,
-      });
-    }
-
-    return addresses;
-  }
-
-  //kept for later use, if need be ///////////////////////////////////////////////////////////////////////////////////////////
-
   generateAddressTypes(mnemonic: string, index: number = 0) {
     const hdkey = this.createHDWallet(mnemonic);
     const childKey = hdkey.derive(`m/44'/0'/0'/0/${index}`);
@@ -204,13 +415,8 @@ export class HdWalletService {
       throw new Error('Failed to derive private key');
     }
 
-    // Legacy P2PKH (starts with 1)
     const p2pkh = btc.p2pkh(childKey.publicKey ?? Buffer.alloc(0));
-
-    // P2SH-wrapped SegWit (starts with 3)
     const p2sh = btc.p2sh(btc.p2wpkh(childKey.publicKey ?? Buffer.alloc(0)));
-
-    // Native SegWit (starts with bc1)
     const p2wpkh = btc.p2wpkh(childKey.publicKey ?? Buffer.alloc(0));
 
     return {
@@ -230,7 +436,6 @@ export class HdWalletService {
     };
   }
 
-  // Get account-level extended public key (for watch-only wallets)
   getAccountXPub(mnemonic: string, account: number = 0): string {
     const hdkey = this.createHDWallet(mnemonic);
     const accountKey = hdkey.derive(`m/44'/0'/${account}'`);
@@ -245,19 +450,14 @@ export class HdWalletService {
     console.log('Creating wallet:', name);
     const mnemonic = bip39.generateMnemonic();
     const bip32 = BIP32Factory(ecc);
-    // const node: BIP32Interface = bip32.fromBase58('xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi');
-    // const child: BIP32Interface = node.derivePath('m/0/0');
 
     const seed = await bip39.mnemonicToSeed(mnemonic, passphrase);
-
     const masterKey = bip32.fromSeed(seed);
 
-    // Encrypt sensitive data
     const encryptedMnemonic = this.encryption.encrypt(mnemonic);
     const encryptedSeed = this.encryption.encrypt(seed.toString('hex'));
     const encryptedMasterPrivateKey = this.encryption.encrypt(masterKey.toBase58());
 
-    // Save wallet to database
     const [wallet] = await this.drizzle.db
       .insert(wallets)
       .values({
@@ -265,23 +465,20 @@ export class HdWalletService {
         mnemonic: encryptedMnemonic,
         seed: encryptedSeed,
         masterPrivateKey: encryptedMasterPrivateKey,
-
         masterPublicKey: masterKey.neutered().toBase58(),
       })
       .returning();
 
     const changeIndex = isChange ? 1 : 0;
-    const derivationPath = `m/44'/0'/${wallet.id}'/${changeIndex}/`;
-    const addressKey = masterKey.derive(changeIndex).derive(1);
+    const derivationPath = `m/44'/0'/${wallet.id}'/${changeIndex}/0`;
+    const addressKey = masterKey.derivePath(derivationPath);
 
     const { address } = bitcoin.payments.p2pkh({
-      pubkey: addressKey.publicKey as Buffer<ArrayBufferLike>,
+      pubkey: addressKey.publicKey as Buffer,
       network: bitcoin.networks.bitcoin,
     });
 
     console.log('derivationPath', derivationPath);
-    console.log('addressKey', addressKey);
-
     console.log('Generated address for wallet:', address);
 
     return {
@@ -289,11 +486,9 @@ export class HdWalletService {
       mnemonic,
       masterPublicKey: masterKey.neutered().toBase58(),
       derivationPath,
-      address: undefined,
+      address: address || '',
     };
   }
-
-  ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
   async createAccount(
     walletId: number,
@@ -308,21 +503,14 @@ export class HdWalletService {
       throw new Error('Wallet not found');
     }
 
-    // Decrypt master private key
     const masterPrivateKeyBase58 = this.encryption.decrypt(wallet.masterPrivateKey);
-    const masterKey = bip32.fromPrivateKey(
-      Buffer.from(masterPrivateKeyBase58, 'hex'),
-      Buffer.alloc(32),
-    );
+    const masterKey = bip32.fromBase58(masterPrivateKeyBase58); // Fixed: use fromBase58
 
-    // Derive account key (BIP44: m/44'/0'/account')
     const accountPath = `m/44'/0'/${accountIndex}'`;
     const accountKey = masterKey.derivePath(accountPath);
 
-    // Encrypt account private key
     const encryptedAccountPrivateKey = this.encryption.encrypt(accountKey.toBase58());
 
-    // Save account to database
     const [account] = await this.drizzle.db
       .insert(accounts)
       .values({
@@ -344,7 +532,6 @@ export class HdWalletService {
   ): Promise<AddressResponseDto> {
     const bip32 = BIP32Factory(ecc);
 
-    // Get account
     const [account] = await this.drizzle.db
       .select()
       .from(accounts)
@@ -354,30 +541,28 @@ export class HdWalletService {
       throw new Error('Account not found');
     }
 
-    // If no address index provided, get the next available index
     if (addressIndex === undefined) {
-      const lastAddress = await this.drizzle.db
+      const lastAddresses = await this.drizzle.db
         .select()
         .from(addresses)
         .where(eq(addresses.accountId, accountId))
-        .orderBy(addresses.addressIndex)
-        .limit(1);
+        .orderBy(addresses.addressIndex);
 
-      addressIndex = lastAddress.length > 0 ? lastAddress[0].addressIndex + 1 : 0;
+      addressIndex =
+        lastAddresses.length > 0
+          ? Math.max(...lastAddresses.map(addr => addr.addressIndex)) + 1
+          : 0;
     }
 
-    // Decrypt account private key
     const accountPrivateKeyBase58 = this.encryption.decrypt(account.extendedPrivateKey);
     const accountKey = bip32.fromBase58(accountPrivateKeyBase58);
 
-    // Derive address key (BIP44: m/44'/0'/account'/change/address_index)
     const changeIndex = isChange ? 1 : 0;
     const derivationPath = `m/44'/0'/${account.accountIndex}'/${changeIndex}/${addressIndex}`;
     const addressKey = accountKey.derive(changeIndex).derive(addressIndex);
 
-    // Generate Bitcoin address (P2PKH)
     const { address } = bitcoin.payments.p2pkh({
-      pubkey: addressKey.publicKey as Buffer<ArrayBufferLike>,
+      pubkey: addressKey.publicKey as Buffer,
       network: bitcoin.networks.bitcoin,
     });
 
@@ -385,17 +570,15 @@ export class HdWalletService {
       throw new Error('Failed to generate address');
     }
 
-    // Encrypt private key
     const encryptedPrivateKey = this.encryption.encrypt(addressKey.toWIF());
 
-    // Save address to database
     const [savedAddress] = await this.drizzle.db
       .insert(addresses)
       .values({
         accountId,
         derivationPath,
         address,
-        publicKey: addressKey.publicKey.toString(),
+        publicKey: addressKey.publicKey?.toString() || '',
         privateKey: encryptedPrivateKey,
         isChange,
         addressIndex,
@@ -424,13 +607,11 @@ export class HdWalletService {
     addressCount: number;
     lastUpdated: string;
   } {
-    // Implementation would involve querying blockchain for UTXO
-    // This is a placeholder
     const confirmedBalance = 0;
     const unconfirmedBalance = 0;
     const totalBalance = confirmedBalance + unconfirmedBalance;
-    const totalBalanceBtc = totalBalance / 100000000; // Convert satoshis to BTC
-    const addressCount = 0; // Count of addresses with balance
+    const totalBalanceBtc = totalBalance / 100000000;
+    const addressCount = 0;
 
     return {
       walletId,
@@ -445,7 +626,7 @@ export class HdWalletService {
 
   async signTransaction(addressId: number, transactionData: object): Promise<SignatureResponseDto> {
     const ECPair: ecPair.ECPairAPI = ecPair.ECPairFactory(ecc);
-    // Get address with private key
+
     const [address] = await this.drizzle.db
       .select()
       .from(addresses)
@@ -455,14 +636,10 @@ export class HdWalletService {
       throw new Error('Address not found');
     }
 
-    // Decrypt private key
     const privateKeyWIF = this.encryption.decrypt(address.privateKey);
     const keyPair = ECPair.fromWIF(privateKeyWIF);
 
-    // Sign transaction (implementation depends on transaction structure)
-    // This is a simplified example
     const psbt = new bitcoin.Psbt();
-    // Add inputs and outputs based on transactionData
 
     psbt.signInput(0, keyPair);
     psbt.finalizeAllInputs();
@@ -475,7 +652,7 @@ export class HdWalletService {
       addressId,
       signedTransaction,
       transactionHash,
-      transactionSize: signedTransaction.length / 2, // hex string length / 2 = bytes
+      transactionSize: signedTransaction.length / 2,
       signedAt: new Date().toISOString(),
     };
   }
@@ -486,23 +663,18 @@ export class HdWalletService {
     passphrase?: string,
   ): Promise<WalletResponseDto> {
     const bip32 = BIP32Factory(ecc);
-    // Validate mnemonic
+
     if (!bip39.validateMnemonic(mnemonic)) {
       throw new Error('Invalid mnemonic');
     }
 
-    // Generate seed from mnemonic
     const seed = await bip39.mnemonicToSeed(mnemonic, passphrase);
-
-    // Create master key pair
     const masterKey = bip32.fromSeed(seed);
 
-    // Encrypt sensitive data
     const encryptedMnemonic = this.encryption.encrypt(mnemonic);
     const encryptedSeed = this.encryption.encrypt(seed.toString('hex'));
     const encryptedMasterPrivateKey = this.encryption.encrypt(masterKey.toBase58());
 
-    // Save restored wallet to database
     const [wallet] = await this.drizzle.db
       .insert(wallets)
       .values({
@@ -518,10 +690,10 @@ export class HdWalletService {
       id: wallet.id,
       name: wallet.name,
       masterPublicKey: wallet.masterPublicKey,
-      derivationPath: "m/44'/0'/0'", // Standard Bitcoin derivation path
-      network: 'mainnet', // Default network
+      derivationPath: "m/44'/0'/0'",
+      network: 'mainnet',
       createdAt: wallet.createdAt?.toISOString() || new Date().toISOString(),
-      isEncrypted: true, // Always encrypted when using Vault
+      isEncrypted: true,
     };
   }
 }
