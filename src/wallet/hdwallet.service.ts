@@ -1,5 +1,4 @@
-import { Injectable } from '@nestjs/common';
-import { DiscoveryService } from '@nestjs/core';
+import { Injectable, Logger } from '@nestjs/common';
 import { HDKey } from '@scure/bip32';
 import {
   generateMnemonic as _generateMnemonic,
@@ -16,8 +15,10 @@ import {
   SystemProgram,
   sendAndConfirmTransaction,
   Transaction,
+  TransactionMessage,
+  VersionedTransaction,
 } from '@solana/web3.js';
-import axios from 'axios';
+import axios, { AxiosResponse } from 'axios';
 import { BIP32Factory } from 'bip32';
 import * as bip39 from 'bip39';
 import * as bitcoin from 'bitcoinjs-lib';
@@ -29,13 +30,13 @@ import * as ecc from 'tiny-secp256k1';
 import * as tinysecp from 'tiny-secp256k1';
 import * as accs from 'viem/accounts';
 
-import { DrizzleService } from '../database/drizzle.service';
-import { accounts, addresses, wallets } from '../database/schema';
-import { EncryptionService } from '../encryption/encription.service';
-import { AccountResult, WalletCreateResult } from '../types/database';
-import { AddressResponseDto, SignatureResponseDto, WalletResponseDto } from './hdwalletdto';
+import {
+  BitcoinSignatureResponseDto,
+  EthereumSignatureResponseDto,
+  MultiChainWalletResponseDto,
+  SolanaSignatureResponseDto,
+} from './hdwalletdto';
 
-//to-do:
 type AllowedKeyEntropyBits = 128 | 256;
 
 type GenerateWalletResult = {
@@ -44,7 +45,6 @@ type GenerateWalletResult = {
     eth: `0x${string}`;
     solana: string;
   };
-  index: number;
   publicKeys: {
     btc: string;
     eth: string;
@@ -62,6 +62,38 @@ type GenerateWalletResult = {
   };
 };
 
+interface BitcoinTransactionInput {
+  txid: string;
+  vout: number;
+  value: number;
+  scriptPubKey: string;
+}
+
+interface BitcoinTransactionOutput {
+  address: string;
+  value: number;
+}
+
+interface EthereumTransactionParams {
+  to: string;
+  value: string;
+  gasLimit?: number;
+  gasPrice?: string;
+  data?: string;
+}
+
+interface SolanaTransactionParams {
+  to: string;
+  amount: number;
+  memo?: string;
+}
+
+interface BlockchainBalances {
+  btc: unknown;
+  eth: string;
+  solana: number;
+}
+
 interface WalletConfig {
   network: 'mainnet' | 'testnet';
   rpcEndpoints: {
@@ -73,13 +105,13 @@ interface WalletConfig {
 
 interface TransactionParams {
   to: string;
-  amount: number; // in base units (satoshis, wei, lamports)
+  amount: number;
   from?: string;
 }
 
 class MultiChainWallet {
   private config: WalletConfig;
-  private connections: {
+  public connections: {
     solana?: Connection;
     ethereum?: ethers.JsonRpcProvider;
   } = {};
@@ -158,13 +190,6 @@ class MultiChainWallet {
   }
 
   async getBitcoinBalance(address: string) {
-    // const postData = {
-    // 		method: 'gettxout', // The RPC method for getting address data
-    // 		params: [address], // The parameters for the method, in this case, the Bitcoin address
-    // 		id: 1,
-    // 		jsonrpc: '2.0',
-    // }
-
     try {
       const { data } = await axios.get(this.config.rpcEndpoints.bitcoin + `/address/${address}`, {
         headers: {
@@ -178,11 +203,7 @@ class MultiChainWallet {
     }
   }
 
-  async getBalances(walletResult: GenerateWalletResult): Promise<{
-    btc: number;
-    eth: string;
-    solana: number;
-  }> {
+  async getBalances(walletResult: GenerateWalletResult): Promise<BlockchainBalances> {
     const [btcBalance, ethBalance, solanaBalance] = await Promise.all([
       this.getBitcoinBalance(walletResult.addresses.btc),
       this.getEthereumBalance(walletResult.addresses.eth),
@@ -199,11 +220,9 @@ class MultiChainWallet {
 
 @Injectable()
 export class HdWalletService {
+  private readonly logger = new Logger(HdWalletService.name);
   public wallet: MultiChainWallet;
-  constructor(
-    private readonly drizzle: DrizzleService,
-    private readonly encryption: EncryptionService,
-  ) {
+  constructor() {
     const network: 'mainnet' | 'testnet' = 'testnet';
     const config = this.getNetworkConfig(network);
     this.wallet = new MultiChainWallet(config);
@@ -245,9 +264,9 @@ export class HdWalletService {
     return _generateMnemonic(wordlist, entropy);
   }
 
-  async demonstrateUsage() {
+  async demonstrateUsage(blockchainKey: string) {
     try {
-      const wallets = await this.generateWalletElaborate();
+      const wallets = await this.generateWalletElaborate({ blockchainKey });
       const balances = await this.wallet.getBalances(wallets[0]);
       console.log('Balances:', balances);
       console.log('wallets', wallets);
@@ -258,9 +277,11 @@ export class HdWalletService {
     }
   }
 
-  async generateWalletElaborate(): Promise<GenerateWalletResult[]> {
-    const count = 5;
-    const addresses: GenerateWalletResult[] = [];
+  async generateWalletElaborate({
+    blockchainKey,
+  }: {
+    blockchainKey: string;
+  }): Promise<GenerateWalletResult> {
     const mnemonic = this.generateAddressFromSecure();
     const validatedMnemonic = validateMnemonic(mnemonic, wordlist);
 
@@ -271,429 +292,341 @@ export class HdWalletService {
     const seed = await mnemonicToSeed(mnemonic);
     const hdkey = HDKey.fromMasterSeed(seed);
 
-    for (let i = 0; i < count; i++) {
-      // Bitcoin derivation
-      const btcDerivationPath = `m/44'/0'/0'/0/${i}`;
-      const btcChildKey = hdkey.derive(btcDerivationPath);
+    // Bitcoin derivation
+    const btcDerivationPath = `m/44'/0'/0'/0/${blockchainKey}`;
+    const btcChildKey = hdkey.derive(btcDerivationPath);
 
-      if (!btcChildKey.privateKey) {
-        throw new Error('Failed to derive Bitcoin private key');
+    if (!btcChildKey.privateKey) {
+      throw new Error('Failed to derive Bitcoin private key');
+    }
+
+    const { address: btcAddress } = btc.p2pkh(
+      btcChildKey.publicKey ?? Buffer.alloc(0),
+      btc.TEST_NETWORK,
+    );
+
+    // Ethereum derivation
+    const ethDerivationPath = `m/44'/60'/0'/0/${blockchainKey}`;
+    const ethChildKey = hdkey.derive(ethDerivationPath);
+
+    if (!ethChildKey.privateKey) {
+      throw new Error('Failed to derive Ethereum private key');
+    }
+
+    const ethAddress = accs.privateKeyToAddress(
+      `0x${Buffer.from(ethChildKey.privateKey).toString('hex')}`,
+    );
+
+    // Solana derivation
+    const solanaDerivationPath = `m/44'/501'/0'/0/${blockchainKey}`;
+    const solanaChildKey = hdkey.derive(solanaDerivationPath);
+
+    if (!solanaChildKey.privateKey) {
+      throw new Error('Failed to derive Solana private key');
+    }
+
+    const solanaSeed = solanaChildKey.privateKey.slice(0, 32);
+    const solanaKeypair = Keypair.fromSeed(solanaSeed);
+    const solanaAddress = solanaKeypair.publicKey.toBase58();
+
+    return {
+      addresses: {
+        btc: btcAddress,
+        eth: ethAddress,
+        solana: solanaAddress,
+      },
+      publicKeys: {
+        btc: Buffer.from(btcChildKey.publicKey ?? Buffer.alloc(0)).toString('hex'),
+        eth: Buffer.from(ethChildKey.publicKey ?? Buffer.alloc(0)).toString('hex'),
+        solana: solanaKeypair.publicKey.toBase58(),
+      },
+      privateKeys: {
+        btc: Buffer.from(btcChildKey.privateKey).toString('hex'),
+        eth: Buffer.from(ethChildKey.privateKey).toString('hex'),
+        solana: Buffer.from(solanaKeypair.secretKey).toString('hex'),
+      },
+      derivationPaths: {
+        btc: btcDerivationPath,
+        eth: ethDerivationPath,
+        solana: solanaDerivationPath,
+      },
+    };
+  }
+
+  /**
+   * Sign a Bitcoin transaction
+   */
+  async signBitcoinTransaction(
+    inputs: BitcoinTransactionInput[],
+    outputs: BitcoinTransactionOutput[],
+    privateKeyWif: string,
+    feeRate = 10,
+  ): Promise<BitcoinSignatureResponseDto> {
+    try {
+      const ECPair: ECPairAPI = await ECPairFactory(ecc);
+      const network = bitcoin.networks.testnet; // Use testnet for development
+
+      const keyPair = ECPair.fromWIF(privateKeyWif, network);
+      const psbt = new bitcoin.Psbt({ network });
+
+      // Add inputs
+      for (const input of inputs) {
+        psbt.addInput({
+          hash: input.txid,
+          index: input.vout,
+          nonWitnessUtxo: Buffer.from(input.scriptPubKey, 'hex'),
+        });
       }
 
-      const { address: btcAddress } = btc.p2pkh(
-        btcChildKey.publicKey ?? Buffer.alloc(0),
-        btc.TEST_NETWORK,
+      // Add outputs
+      for (const output of outputs) {
+        psbt.addOutput({
+          address: output.address,
+          value: output.value,
+        });
+      }
+
+      // Calculate fee
+      const inputSum = inputs.reduce((sum, input) => sum + input.value, 0);
+      const outputSum = outputs.reduce((sum, output) => sum + output.value, 0);
+      const fee = Math.max(feeRate * 250, inputSum - outputSum); // Minimum fee
+
+      // Sign all inputs
+      for (let i = 0; i < inputs.length; i++) {
+        psbt.signInput(i, keyPair);
+      }
+
+      psbt.finalizeAllInputs();
+
+      const signedTx = psbt.extractTransaction();
+      const signedTransaction = signedTx.toHex();
+      const transactionHash = signedTx.getId();
+
+      return {
+        signedTransaction,
+        transactionHash,
+        transactionSize: signedTransaction.length / 2,
+        transactionFee: fee,
+        signedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      this.logger.error('Bitcoin transaction signing failed:', error);
+      throw new Error(
+        `Bitcoin transaction signing failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
+    }
+  }
 
-      // Ethereum derivation
-      const ethDerivationPath = `m/44'/60'/0'/0/${i}`;
-      const ethChildKey = hdkey.derive(ethDerivationPath);
-
-      if (!ethChildKey.privateKey) {
-        throw new Error('Failed to derive Ethereum private key');
+  /**
+   * Sign an Ethereum transaction
+   */
+  async signEthereumTransaction(
+    params: EthereumTransactionParams,
+    privateKeyHex: string,
+  ): Promise<EthereumSignatureResponseDto> {
+    try {
+      if (!this.wallet.connections.ethereum) {
+        throw new Error('Ethereum connection not initialized');
       }
 
-      const ethAddress = accs.privateKeyToAddress(
-        `0x${Buffer.from(ethChildKey.privateKey).toString('hex')}`,
+      const wallet = new ethers.Wallet(`0x${privateKeyHex}`, this.wallet.connections.ethereum);
+
+      const [feeData, nonce] = await Promise.all([
+        this.wallet.connections.ethereum.getFeeData(),
+        this.wallet.connections.ethereum.getTransactionCount(wallet.address),
+      ]);
+
+      const transaction: ethers.TransactionRequest = {
+        to: params.to,
+        value: params.value,
+        gasLimit: params.gasLimit || 21000,
+        gasPrice: params.gasPrice || feeData.gasPrice,
+        nonce,
+        data: params.data || '0x',
+      };
+
+      const signedTx = await wallet.signTransaction(transaction);
+      const txResponse = await wallet.sendTransaction(transaction);
+      const receipt = await txResponse.wait();
+
+      return {
+        transactionHash: txResponse.hash,
+        signedTransaction: signedTx,
+        gasUsed: receipt?.gasUsed ? Number(receipt.gasUsed) : (transaction.gasLimit as number),
+        gasPrice: transaction.gasPrice?.toString() || '0',
+        nonce,
+        signedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      this.logger.error('Ethereum transaction signing failed:', error);
+      throw new Error(
+        `Ethereum transaction signing failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
+    }
+  }
 
-      // Solana derivation
-      const solanaDerivationPath = `m/44'/501'/0'/0/${i}`;
-      const solanaChildKey = hdkey.derive(solanaDerivationPath);
-
-      if (!solanaChildKey.privateKey) {
-        throw new Error('Failed to derive Solana private key');
+  /**
+   * Sign a Solana transaction
+   */
+  /**
+   * Sign a Solana transaction
+   */
+  async signSolanaTransaction(
+    params: SolanaTransactionParams,
+    privateKeyBase58: string,
+  ): Promise<SolanaSignatureResponseDto> {
+    try {
+      if (!this.wallet.connections.solana) {
+        throw new Error('Solana connection not initialized');
       }
 
-      const solanaSeed = solanaChildKey.privateKey.slice(0, 32);
-      const solanaKeypair = Keypair.fromSeed(solanaSeed);
-      const solanaAddress = solanaKeypair.publicKey.toBase58();
+      const privateKeyBytes = Buffer.from(privateKeyBase58, 'hex');
+      const keypair = Keypair.fromSecretKey(privateKeyBytes);
 
-      addresses.push({
-        addresses: {
-          btc: btcAddress,
-          eth: ethAddress,
-          solana: solanaAddress,
-        },
-        index: i,
-        publicKeys: {
-          btc: Buffer.from(btcChildKey.publicKey ?? Buffer.alloc(0)).toString('hex'),
-          eth: Buffer.from(ethChildKey.publicKey ?? Buffer.alloc(0)).toString('hex'),
-          solana: solanaKeypair.publicKey.toBase58(),
-        },
-        privateKeys: {
-          btc: Buffer.from(btcChildKey.privateKey).toString('hex'),
-          eth: Buffer.from(ethChildKey.privateKey).toString('hex'),
-          solana: Buffer.from(solanaKeypair.secretKey).toString('hex'),
-        },
-        derivationPaths: {
-          btc: btcDerivationPath,
-          eth: ethDerivationPath,
-          solana: solanaDerivationPath,
-        },
+      // Get recent blockhash
+      const { blockhash } = await this.wallet.connections.solana.getLatestBlockhash();
+
+      const transaction = new Transaction({
+        recentBlockhash: blockhash,
+        feePayer: keypair.publicKey,
       });
+
+      // Add transfer instruction
+      transaction.add(
+        SystemProgram.transfer({
+          fromPubkey: keypair.publicKey,
+          toPubkey: new PublicKey(params.to),
+          lamports: params.amount,
+        }),
+      );
+
+      // Add memo if provided
+      if (params.memo) {
+        const memoInstruction = {
+          keys: [],
+          programId: new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr'),
+          data: Buffer.from(params.memo, 'utf8'),
+        };
+        transaction.add(memoInstruction);
+      }
+
+      // Sign and send transaction
+      const signature = await sendAndConfirmTransaction(
+        this.wallet.connections.solana,
+        transaction,
+        [keypair],
+      );
+
+      // Get transaction fee
+      const feeResponse = await this.wallet.connections.solana.getFeeForMessage(
+        transaction.compileMessage(),
+      );
+      const transactionFee = feeResponse.value || 5000; // Default fee
+
+      return {
+        signature,
+        recentBlockhash: blockhash,
+        transactionFee,
+        signedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      this.logger.error('Solana transaction signing failed:', error);
+      throw new Error(
+        `Solana transaction signing failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
-
-    return addresses;
   }
 
-  // Multi-chain transaction methods
-  // async sendMultiChainTransaction(
-  //   walletResult: GenerateWalletResult,
-  //   chain: 'btc' | 'eth' | 'solana',
-  //   params: TransactionParams
-  // ): Promise<string> {
-  //   switch (chain) {
-  //     case 'solana':
-  //       return this.wallet.sendSolanaTransaction(
-  //         walletResult.privateKeys.solana,
-  //         params
-  //       );
+  /**
+   * Get wallet balances for all chains
+   */
+  async getWalletBalances(addresses: {
+    btc: string;
+    eth: string;
+    solana: string;
+  }): Promise<BlockchainBalances> {
+    try {
+      const [btcBalance, ethBalance, solanaBalance] = await Promise.all([
+        this.wallet.getBitcoinBalance(addresses.btc),
+        this.wallet.getEthereumBalance(addresses.eth),
+        this.wallet.getSolanaBalance(addresses.solana),
+      ]);
 
-  //     case 'eth':
-  //       return this.wallet.sendEthereumTransaction(
-  //         walletResult.privateKeys.eth,
-  //         params
-  //       );
-
-  //     case 'btc':
-  //       // Bitcoin requires more complex UTXO handling
-  //       throw new Error('Bitcoin transactions require UTXO management - use signTransaction method');
-
-  //     default:
-  //       throw new Error(`Unsupported chain: ${chain}`);
-  //   }
-  // }
-
-  // Get balances for all chains
-  // async getMultiChainBalances(walletResult: GenerateWalletResult) {
-  //   return this.wallet.getBalances(walletResult);
-  // }
-
-  // Existing methods with fixes...
-  async generateWalletSimple() {
-    const mnemonic = this.generateAddressFromSecure();
-    const masterSeed = await mnemonicToSeed(mnemonic);
-    const network_version = {
-      mainnet: {
-        private: 0x04b2430c,
-        public: 0x04b24746,
-      },
-      testnet: {
-        private: 0x045f18bc,
-        public: 0x045f1cf6,
-      },
-    };
-
-    const hdkey = HDKey.fromMasterSeed(masterSeed, network_version.testnet); // Fixed: use testnet
-
-    const receive_path = "m/84'/0'/0'/0/0";
-    const receive_node = hdkey.derive(receive_path);
-    const receive_address = btc.getAddress('wpkh', receive_node.privateKey!);
-
-    const next_receive_node = receive_node.deriveChild(1);
-
-    const change_path = "m/84'/0'/0'/1/0";
-    const change_node = hdkey.derive(change_path);
-    const change_address = btc.getAddress('wpkh', change_node.privateKey!);
-
-    const next_change_node = change_node.deriveChild(1);
-
-    return {
-      receive_address,
-      change_address,
-      next_receive_node,
-      next_change_node,
-    };
-  }
-
-  generateAddressTypes(mnemonic: string, index: number = 0) {
-    const hdkey = this.createHDWallet(mnemonic);
-    const childKey = hdkey.derive(`m/44'/0'/0'/0/${index}`);
-
-    if (!childKey.privateKey) {
-      throw new Error('Failed to derive private key');
+      return {
+        btc: btcBalance,
+        eth: ethBalance,
+        solana: solanaBalance,
+      };
+    } catch (error) {
+      this.logger.error('Failed to get wallet balances:', error);
+      throw new Error(
+        `Failed to get wallet balances: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
-
-    const p2pkh = btc.p2pkh(childKey.publicKey ?? Buffer.alloc(0));
-    const p2sh = btc.p2sh(btc.p2wpkh(childKey.publicKey ?? Buffer.alloc(0)));
-    const p2wpkh = btc.p2wpkh(childKey.publicKey ?? Buffer.alloc(0));
-
-    return {
-      derivationPath: `m/44'/0'/0'/0/${index}`,
-      legacy: {
-        type: 'P2PKH',
-        address: p2pkh.address,
-      },
-      segwit_wrapped: {
-        type: 'P2SH-P2WPKH',
-        address: p2sh.address,
-      },
-      native_segwit: {
-        type: 'P2WPKH',
-        address: p2wpkh.address,
-      },
-    };
   }
 
-  getAccountXPub(mnemonic: string, account: number = 0): string {
-    const hdkey = this.createHDWallet(mnemonic);
-    const accountKey = hdkey.derive(`m/44'/0'/${account}'`);
-    return accountKey.publicExtendedKey;
-  }
-
-  async createWallet(
-    name: string,
-    passphrase?: string,
-    isChange?: boolean,
-  ): Promise<WalletCreateResult> {
-    console.log('Creating wallet:', name);
-    const mnemonic = bip39.generateMnemonic();
-    const bip32 = BIP32Factory(ecc);
-
-    const seed = await bip39.mnemonicToSeed(mnemonic, passphrase);
-    const masterKey = bip32.fromSeed(seed);
-
-    const encryptedMnemonic = this.encryption.encrypt(mnemonic);
-    const encryptedSeed = this.encryption.encrypt(seed.toString('hex'));
-    const encryptedMasterPrivateKey = this.encryption.encrypt(masterKey.toBase58());
-
-    const [wallet] = await this.drizzle.db
-      .insert(wallets)
-      .values({
-        name,
-        mnemonic: encryptedMnemonic,
-        seed: encryptedSeed,
-        masterPrivateKey: encryptedMasterPrivateKey,
-        masterPublicKey: masterKey.neutered().toBase58(),
-      })
-      .returning();
-
-    const changeIndex = isChange ? 1 : 0;
-    const derivationPath = `m/44'/0'/${wallet.id}'/${changeIndex}/0`;
-    const addressKey = masterKey.derivePath(derivationPath);
-
-    const { address } = bitcoin.payments.p2pkh({
-      pubkey: addressKey.publicKey as Buffer,
-      network: bitcoin.networks.bitcoin,
-    });
-
-    console.log('derivationPath', derivationPath);
-    console.log('Generated address for wallet:', address);
-
-    return {
-      walletId: wallet.id,
-      mnemonic,
-      masterPublicKey: masterKey.neutered().toBase58(),
-      derivationPath,
-      address: address || '',
-    };
-  }
-
-  async createAccount(
-    walletId: number,
-    accountIndex: number,
-    name?: string,
-  ): Promise<AccountResult> {
-    const bip32 = BIP32Factory(ecc);
-
-    const [wallet] = await this.drizzle.db.select().from(wallets).where(eq(wallets.id, walletId));
-
-    if (!wallet) {
-      throw new Error('Wallet not found');
+  /**
+   * Validate private key format for different blockchains
+   */
+  validatePrivateKey(privateKey: string, blockchain: 'btc' | 'eth' | 'solana'): boolean {
+    try {
+      switch (blockchain) {
+        case 'btc': {
+          // Bitcoin WIF format validation
+          const ECPair: ECPairAPI = ECPairFactory(ecc);
+          ECPair.fromWIF(privateKey, bitcoin.networks.testnet);
+          return true;
+        }
+        case 'eth': {
+          // Ethereum hex private key validation
+          const hexRegex = /^[0-9a-fA-F]{64}$/;
+          return hexRegex.test(privateKey);
+        }
+        case 'solana':
+          // Solana base58 private key validation
+          try {
+            const keyBytes = Buffer.from(privateKey, 'hex');
+            return keyBytes.length === 64; // 64 bytes for Solana keypair
+          } catch {
+            return false;
+          }
+        default:
+          return false;
+      }
+    } catch {
+      return false;
     }
-
-    const masterPrivateKeyBase58 = this.encryption.decrypt(wallet.masterPrivateKey);
-    const masterKey = bip32.fromBase58(masterPrivateKeyBase58); // Fixed: use fromBase58
-
-    const accountPath = `m/44'/0'/${accountIndex}'`;
-    const accountKey = masterKey.derivePath(accountPath);
-
-    const encryptedAccountPrivateKey = this.encryption.encrypt(accountKey.toBase58());
-
-    const [account] = await this.drizzle.db
-      .insert(accounts)
-      .values({
-        walletId,
-        accountIndex,
-        name: name || `Account ${accountIndex}`,
-        extendedPublicKey: accountKey.neutered().toBase58(),
-        extendedPrivateKey: encryptedAccountPrivateKey,
-      })
-      .returning();
-
-    return account;
   }
 
-  async generateAddress(
-    accountId: number,
-    isChange: boolean = false,
-    addressIndex?: number,
-  ): Promise<AddressResponseDto> {
-    const bip32 = BIP32Factory(ecc);
+  /**
+   * Convert private key between formats
+   */
+  convertPrivateKey(
+    privateKey: string,
+    from: 'hex' | 'wif' | 'base58',
+    to: 'hex' | 'wif' | 'base58',
+  ): string {
+    if (from === to) return privateKey;
 
-    const [account] = await this.drizzle.db
-      .select()
-      .from(accounts)
-      .where(eq(accounts.id, accountId));
-
-    if (!account) {
-      throw new Error('Account not found');
+    try {
+      switch (`${from}->${to}`) {
+        case 'hex->wif': {
+          const ECPair: ECPairAPI = ECPairFactory(ecc);
+          const keyPair = ECPair.fromPrivateKey(Buffer.from(privateKey, 'hex'));
+          return keyPair.toWIF();
+        }
+        case 'wif->hex': {
+          const ECPairFromWIF: ECPairAPI = ECPairFactory(ecc);
+          const keyPairFromWIF = ECPairFromWIF.fromWIF(privateKey);
+          return keyPairFromWIF.privateKey?.toString('hex') || '';
+        }
+        default:
+          throw new Error(`Conversion from ${from} to ${to} not implemented`);
+      }
+    } catch (error) {
+      throw new Error(
+        `Private key conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
-
-    if (addressIndex === undefined) {
-      const lastAddresses = await this.drizzle.db
-        .select()
-        .from(addresses)
-        .where(eq(addresses.accountId, accountId))
-        .orderBy(addresses.addressIndex);
-
-      addressIndex =
-        lastAddresses.length > 0
-          ? Math.max(...lastAddresses.map(addr => addr.addressIndex)) + 1
-          : 0;
-    }
-
-    const accountPrivateKeyBase58 = this.encryption.decrypt(account.extendedPrivateKey);
-    const accountKey = bip32.fromBase58(accountPrivateKeyBase58);
-
-    const changeIndex = isChange ? 1 : 0;
-    const derivationPath = `m/44'/0'/${account.accountIndex}'/${changeIndex}/${addressIndex}`;
-    const addressKey = accountKey.derive(changeIndex).derive(addressIndex);
-
-    const { address } = bitcoin.payments.p2pkh({
-      pubkey: addressKey.publicKey as Buffer,
-      network: bitcoin.networks.bitcoin,
-    });
-
-    if (!address) {
-      throw new Error('Failed to generate address');
-    }
-
-    const encryptedPrivateKey = this.encryption.encrypt(addressKey.toWIF());
-
-    const [savedAddress] = await this.drizzle.db
-      .insert(addresses)
-      .values({
-        accountId,
-        derivationPath,
-        address,
-        publicKey: addressKey.publicKey?.toString() || '',
-        privateKey: encryptedPrivateKey,
-        isChange,
-        addressIndex,
-        createdAt: new Date(),
-      })
-      .returning();
-
-    return {
-      id: savedAddress.id,
-      address: savedAddress.address,
-      publicKey: savedAddress.publicKey,
-      derivationPath: savedAddress.derivationPath,
-      isChange: savedAddress.isChange || false,
-      addressIndex: savedAddress.addressIndex,
-      accountId: savedAddress.accountId || accountId,
-      createdAt: savedAddress.createdAt?.toISOString() || new Date().toISOString(),
-    };
-  }
-
-  getWalletBalance(walletId: number): {
-    walletId: number;
-    confirmedBalance: number;
-    unconfirmedBalance: number;
-    totalBalance: number;
-    totalBalanceBtc: number;
-    addressCount: number;
-    lastUpdated: string;
-  } {
-    const confirmedBalance = 0;
-    const unconfirmedBalance = 0;
-    const totalBalance = confirmedBalance + unconfirmedBalance;
-    const totalBalanceBtc = totalBalance / 100000000;
-    const addressCount = 0;
-
-    return {
-      walletId,
-      confirmedBalance,
-      unconfirmedBalance,
-      totalBalance,
-      totalBalanceBtc,
-      addressCount,
-      lastUpdated: new Date().toISOString(),
-    };
-  }
-
-  async signTransaction(addressId: number, transactionData: object): Promise<SignatureResponseDto> {
-    const ECPair: ecPair.ECPairAPI = ecPair.ECPairFactory(ecc);
-
-    const [address] = await this.drizzle.db
-      .select()
-      .from(addresses)
-      .where(eq(addresses.id, addressId));
-
-    if (!address) {
-      throw new Error('Address not found');
-    }
-
-    const privateKeyWIF = this.encryption.decrypt(address.privateKey);
-    const keyPair = ECPair.fromWIF(privateKeyWIF);
-
-    const psbt = new bitcoin.Psbt();
-
-    psbt.signInput(0, keyPair);
-    psbt.finalizeAllInputs();
-
-    const signedTx = psbt.extractTransaction();
-    const signedTransaction = signedTx.toHex();
-    const transactionHash = signedTx.getId();
-
-    return {
-      addressId,
-      signedTransaction,
-      transactionHash,
-      transactionSize: signedTransaction.length / 2,
-      signedAt: new Date().toISOString(),
-    };
-  }
-
-  async restoreWallet(
-    mnemonic: string,
-    name: string,
-    passphrase?: string,
-  ): Promise<WalletResponseDto> {
-    const bip32 = BIP32Factory(ecc);
-
-    if (!bip39.validateMnemonic(mnemonic)) {
-      throw new Error('Invalid mnemonic');
-    }
-
-    const seed = await bip39.mnemonicToSeed(mnemonic, passphrase);
-    const masterKey = bip32.fromSeed(seed);
-
-    const encryptedMnemonic = this.encryption.encrypt(mnemonic);
-    const encryptedSeed = this.encryption.encrypt(seed.toString('hex'));
-    const encryptedMasterPrivateKey = this.encryption.encrypt(masterKey.toBase58());
-
-    const [wallet] = await this.drizzle.db
-      .insert(wallets)
-      .values({
-        name,
-        mnemonic: encryptedMnemonic,
-        seed: encryptedSeed,
-        masterPrivateKey: encryptedMasterPrivateKey,
-        masterPublicKey: masterKey.neutered().toBase58(),
-      })
-      .returning();
-
-    return {
-      id: wallet.id,
-      name: wallet.name,
-      masterPublicKey: wallet.masterPublicKey,
-      derivationPath: "m/44'/0'/0'",
-      network: 'mainnet',
-      createdAt: wallet.createdAt?.toISOString() || new Date().toISOString(),
-      isEncrypted: true,
-    };
   }
 }

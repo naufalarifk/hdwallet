@@ -22,20 +22,24 @@ import {
   ApiTags,
   getSchemaPath,
 } from '@nestjs/swagger';
-import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 
 import { HdWalletService } from './hdwallet.service';
 import {
   AccountResponseDto,
   AddressResponseDto,
   BalanceResponseDto,
+  BitcoinSignatureResponseDto,
   CreateAccountDto,
-  CreateWalletDto,
+  EthereumSignatureResponseDto,
   GenerateAddressDto,
+  GenerateWalletDto,
   HealthResponseDto,
+  MultiChainWalletResponseDto,
   RestoreWalletDto,
-  SignatureResponseDto,
-  SignTransactionDto,
+  SignBitcoinTransactionDto,
+  SignEthereumTransactionDto,
+  SignSolanaTransactionDto,
+  SolanaSignatureResponseDto,
   WalletResponseDto,
 } from './hdwalletdto';
 import { WalletExceptionFilter } from './wallet-exception.filter';
@@ -50,14 +54,16 @@ import { WalletExceptionFilter } from './wallet-exception.filter';
   AccountResponseDto,
   AddressResponseDto,
   BalanceResponseDto,
-  SignatureResponseDto,
+  BitcoinSignatureResponseDto,
+  EthereumSignatureResponseDto,
+  SolanaSignatureResponseDto,
+  MultiChainWalletResponseDto,
   HealthResponseDto,
 )
 @ApiProduces('application/json')
 @ApiConsumes('application/json')
 export class WalletController {
-  @Inject(WINSTON_MODULE_NEST_PROVIDER)
-  private readonly logger: Logger;
+  private readonly logger = new Logger(WalletController.name);
 
   constructor(private readonly walletService: HdWalletService) {}
 
@@ -76,7 +82,6 @@ export class WalletController {
     },
   })
   getHealth(): HealthResponseDto {
-    this.logger.log('Health check requested');
     return {
       status: 'ok',
       message: 'Wallet service is healthy',
@@ -84,334 +89,233 @@ export class WalletController {
     };
   }
 
-  @Post('generate')
-  async generateWallet() {
-    return await this.walletService.generateWalletSimple();
-  }
-
-  @Post('generate-elaborate')
-  async generateWalletElaborate() {
-    return await this.walletService.generateWalletElaborate();
-  }
-
-  @Post('create')
+  @Post('generate-wallet')
   @ApiOperation({
-    summary: 'Create a new HD wallet',
+    summary: 'Generate a multi-chain wallet',
     description:
-      'Creates a new hierarchical deterministic (HD) wallet with a generated mnemonic phrase. The mnemonic is securely encrypted and stored in Vault.',
-    operationId: 'createWallet',
+      'Generates addresses, public keys, and private keys for Bitcoin, Ethereum, and Solana networks',
+    operationId: 'generateMultiChainWallet',
   })
-  @ApiBody({
-    type: CreateWalletDto,
-    description: 'Wallet creation parameters',
-    examples: {
-      basic: {
-        summary: 'Basic wallet creation',
-        value: {
-          name: 'My Bitcoin Wallet',
-          passphrase: 'optional-bip39-passphrase',
-        },
-      },
-      noPassphrase: {
-        summary: 'Wallet without passphrase',
-        value: {
-          name: 'Simple Wallet',
-        },
-      },
+  @ApiBody({ type: GenerateWalletDto })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'Multi-chain wallet generated successfully',
+    schema: {
+      $ref: getSchemaPath(MultiChainWalletResponseDto),
     },
   })
   @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Wallet created successfully',
-    schema: {
-      $ref: getSchemaPath(WalletResponseDto),
-    },
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid blockchain key or parameters',
   })
-  async createWallet(@Body() createWalletDto: CreateWalletDto) {
-    const { name, passphrase } = createWalletDto;
+  async generateWalletElaborate(
+    @Body() generateWalletDto: GenerateWalletDto,
+  ): Promise<MultiChainWalletResponseDto> {
     try {
-      return await this.walletService.createWallet(name, passphrase);
-    } catch (error) {
-      this.logger.error(`Failed to create wallet ${name}:`, error);
-      // Preserve the original error message if it's a known error type
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      if (error.message) {
-        throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
-      }
-      throw new HttpException('Failed to create wallet', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
+      const walletResult = await this.walletService.generateWalletElaborate({
+        blockchainKey: generateWalletDto.blockchainKey,
+      });
 
-  @Post('restore')
-  @ApiOperation({
-    summary: 'Restore HD wallet from mnemonic',
-    description:
-      'Restores an existing HD wallet using a BIP39 mnemonic phrase. The mnemonic is validated and the wallet is recreated with all its derivation paths.',
-    operationId: 'restoreWallet',
-  })
-  @ApiBody({
-    type: RestoreWalletDto,
-    description: 'Wallet restoration parameters',
-    examples: {
-      basic: {
-        summary: 'Basic wallet restoration',
-        value: {
-          mnemonic:
-            'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
-          name: 'Restored Wallet',
-          passphrase: 'optional-bip39-passphrase',
-        },
-      },
-      noPassphrase: {
-        summary: 'Restore without passphrase',
-        value: {
-          mnemonic:
-            'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
-          name: 'Simple Restored Wallet',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Wallet restored successfully',
-    schema: {
-      $ref: getSchemaPath(WalletResponseDto),
-    },
-  })
-  async restoreWallet(@Body() restoreWalletDto: RestoreWalletDto) {
-    this.logger.log('Restore wallet request received');
-    const { mnemonic, name, passphrase } = restoreWalletDto;
-    try {
-      return await this.walletService.restoreWallet(mnemonic, name, passphrase);
+      return {
+        addresses: walletResult.addresses,
+        publicKeys: walletResult.publicKeys,
+        privateKeys: walletResult.privateKeys,
+        derivationPaths: walletResult.derivationPaths,
+        createdAt: new Date().toISOString(),
+      };
     } catch (error) {
-      this.logger.error(`Failed to restore wallet ${name}:`, error);
-      // Preserve the original error message if it's a known error type
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      if (error.message) {
-        throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
-      }
-      throw new HttpException('Failed to restore wallet', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  @Post(':walletId/accounts')
-  @ApiOperation({
-    summary: 'Create new account in wallet',
-    description:
-      'Creates a new account within an existing HD wallet using BIP44 derivation path. Each account can have multiple addresses.',
-    operationId: 'createAccount',
-  })
-  @ApiParam({
-    name: 'walletId',
-    type: 'integer',
-    description: 'Unique identifier of the wallet',
-    example: 1,
-  })
-  @ApiBody({
-    type: CreateAccountDto,
-    description: 'Account creation parameters',
-    examples: {
-      basic: {
-        summary: 'Create account',
-        value: {
-          accountIndex: 0,
-          name: 'Main Account',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Account created successfully',
-    schema: {
-      $ref: getSchemaPath(AccountResponseDto),
-    },
-  })
-  async createAccount(
-    @Param('walletId', ParseIntPipe) walletId: number,
-    @Body() createAccountDto: CreateAccountDto,
-  ) {
-    const { accountIndex, name } = createAccountDto;
-    this.logger.log(`Creating account for wallet ${walletId}, account index: ${accountIndex}`);
-    try {
-      return await this.walletService.createAccount(walletId, accountIndex, name);
-    } catch (error) {
-      this.logger.error(`Failed to create account for wallet ${walletId}:`, error);
-      // Preserve the original error message if it's a known error type
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      if (error.message) {
-        throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
-      }
-      throw new HttpException('Failed to create account', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  @Post('accounts/:accountId/addresses')
-  @ApiOperation({
-    summary: 'Generate new address for account',
-    description:
-      'Generates a new Bitcoin address for the specified account. Supports both receiving (external) and change (internal) addresses.',
-    operationId: 'generateAddress',
-  })
-  @ApiParam({
-    name: 'accountId',
-    type: 'integer',
-    description: 'Unique identifier of the account',
-    example: 1,
-  })
-  @ApiBody({
-    type: GenerateAddressDto,
-    description: 'Address generation parameters',
-    examples: {
-      receiving: {
-        summary: 'Generate receiving address',
-        value: {
-          isChange: false,
-          addressIndex: 0,
-        },
-      },
-      change: {
-        summary: 'Generate change address',
-        value: {
-          isChange: true,
-          addressIndex: 0,
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Address generated successfully',
-    schema: {
-      $ref: getSchemaPath(AddressResponseDto),
-    },
-  })
-  async generateAddress(
-    @Param('accountId', ParseIntPipe) accountId: number,
-    @Body() generateAddressDto: GenerateAddressDto,
-  ): Promise<AddressResponseDto> {
-    const { isChange, addressIndex } = generateAddressDto;
-    this.logger.log(`Generating address for account ${accountId}`);
-    try {
-      return await this.walletService.generateAddress(accountId, isChange, addressIndex);
-    } catch (error) {
-      this.logger.error(`Failed to generate address for account ${accountId}:`, error);
-      // Preserve the original error message if it's a known error type
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      if (error.message) {
-        throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
-      }
-      throw new HttpException('Failed to generate address', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.error('Failed to generate wallet', error);
+      throw new HttpException(
+        `Failed to generate wallet: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
   @Post('/demonstrate')
-  demonstrateUsage() {
+  @ApiOperation({
+    summary: 'Demonstrate wallet usage',
+    description: 'Demonstrates wallet generation and balance checking functionality',
+    operationId: 'demonstrateWalletUsage',
+  })
+  @ApiBody({ type: GenerateWalletDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Wallet demonstration completed successfully',
+    schema: {
+      $ref: getSchemaPath(MultiChainWalletResponseDto),
+    },
+  })
+  demonstrateUsage(@Body() generateWalletDto: GenerateWalletDto) {
     try {
-      return this.walletService.demonstrateUsage();
+      return this.walletService.demonstrateUsage(generateWalletDto.blockchainKey);
     } catch (err: unknown) {
-      this.logger.error(`Failed to demonstrate usage:`, err);
+      this.logger.error('Failed to demonstrate usage', err);
       throw new HttpException('Failed to demonstrate usage', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
-  @Get(':walletId/balance')
+
+  @Post('sign-bitcoin-transaction')
   @ApiOperation({
-    summary: 'Get wallet balance',
-    description:
-      'Retrieves the total balance for all accounts and addresses within the specified wallet.',
-    operationId: 'getWalletBalance',
+    summary: 'Sign a Bitcoin transaction',
+    description: 'Signs a Bitcoin transaction with the provided inputs, outputs, and private key',
+    operationId: 'signBitcoinTransaction',
   })
-  @ApiParam({
-    name: 'walletId',
-    type: 'integer',
-    description: 'Unique identifier of the wallet',
-    example: 1,
-  })
+  @ApiBody({ type: SignBitcoinTransactionDto })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Wallet balance retrieved successfully',
+    description: 'Bitcoin transaction signed successfully',
     schema: {
-      $ref: getSchemaPath(BalanceResponseDto),
+      $ref: getSchemaPath(BitcoinSignatureResponseDto),
     },
   })
-  getBalance(@Param('walletId', ParseIntPipe) walletId: number): BalanceResponseDto {
-    this.logger.log(`Getting balance for wallet ${walletId}`);
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid transaction data or private key',
+  })
+  async signBitcoinTransaction(
+    @Body() signBitcoinDto: SignBitcoinTransactionDto,
+  ): Promise<BitcoinSignatureResponseDto> {
     try {
-      return this.walletService.getWalletBalance(walletId);
+      return await this.walletService.signBitcoinTransaction(
+        signBitcoinDto.inputs,
+        signBitcoinDto.outputs,
+        signBitcoinDto.privateKey,
+        signBitcoinDto.feeRate,
+      );
     } catch (error) {
-      this.logger.error(`Failed to get balance for wallet ${walletId}:`, error);
-      // Preserve the original error message if it's a known error type
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      if (error.message) {
-        throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
-      }
-      throw new HttpException('Failed to get wallet balance', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.error('Failed to sign Bitcoin transaction', error);
+      throw new HttpException(
+        `Failed to sign Bitcoin transaction: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
-  @Post('addresses/:addressId/sign')
+  @Post('sign-ethereum-transaction')
   @ApiOperation({
-    summary: 'Sign transaction with address private key',
-    description:
-      'Signs a Bitcoin transaction using the private key associated with the specified address. The transaction data should be in raw format.',
-    operationId: 'signTransaction',
+    summary: 'Sign an Ethereum transaction',
+    description: 'Signs an Ethereum transaction with the provided parameters and private key',
+    operationId: 'signEthereumTransaction',
   })
-  @ApiParam({
-    name: 'addressId',
-    type: 'integer',
-    description: 'Unique identifier of the address to use for signing',
-    example: 1,
+  @ApiBody({ type: SignEthereumTransactionDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Ethereum transaction signed successfully',
+    schema: {
+      $ref: getSchemaPath(EthereumSignatureResponseDto),
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid transaction data or private key',
+  })
+  async signEthereumTransaction(
+    @Body() signEthereumDto: SignEthereumTransactionDto,
+  ): Promise<EthereumSignatureResponseDto> {
+    try {
+      const params = {
+        to: signEthereumDto.to,
+        value: signEthereumDto.value,
+        gasLimit: signEthereumDto.gasLimit,
+        gasPrice: signEthereumDto.gasPrice,
+        data: signEthereumDto.data,
+      };
+
+      return await this.walletService.signEthereumTransaction(params, signEthereumDto.privateKey);
+    } catch (error) {
+      this.logger.error('Failed to sign Ethereum transaction', error);
+      throw new HttpException(
+        `Failed to sign Ethereum transaction: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  @Post('sign-solana-transaction')
+  @ApiOperation({
+    summary: 'Sign a Solana transaction',
+    description: 'Signs a Solana transaction with the provided parameters and private key',
+    operationId: 'signSolanaTransaction',
+  })
+  @ApiBody({ type: SignSolanaTransactionDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Solana transaction signed successfully',
+    schema: {
+      $ref: getSchemaPath(SolanaSignatureResponseDto),
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid transaction data or private key',
+  })
+  async signSolanaTransaction(
+    @Body() signSolanaDto: SignSolanaTransactionDto,
+  ): Promise<SolanaSignatureResponseDto> {
+    try {
+      const params = {
+        to: signSolanaDto.to,
+        amount: signSolanaDto.amount,
+        memo: signSolanaDto.memo,
+      };
+
+      return await this.walletService.signSolanaTransaction(params, signSolanaDto.privateKey);
+    } catch (error) {
+      this.logger.error('Failed to sign Solana transaction', error);
+      throw new HttpException(
+        `Failed to sign Solana transaction: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  @Post('get-balances')
+  @ApiOperation({
+    summary: 'Get wallet balances for all chains',
+    description: 'Retrieves balances for Bitcoin, Ethereum, and Solana addresses',
+    operationId: 'getWalletBalances',
   })
   @ApiBody({
-    type: SignTransactionDto,
-    description: 'Transaction signing parameters',
-    examples: {
-      basic: {
-        summary: 'Sign Bitcoin transaction',
-        value: {
-          transactionData: '0100000001a1b2c3d4e5f6789...',
+    schema: {
+      type: 'object',
+      properties: {
+        addresses: {
+          type: 'object',
+          properties: {
+            btc: { type: 'string', example: '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2' },
+            eth: { type: 'string', example: '0x742d35Cc6aB1C0532F4c7D7B8b1F6B7E0C7b8A8B' },
+            solana: { type: 'string', example: '11111111111111111111111111111112' },
+          },
+          required: ['btc', 'eth', 'solana'],
         },
       },
+      required: ['addresses'],
     },
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Transaction signed successfully',
+    description: 'Balances retrieved successfully',
     schema: {
-      $ref: getSchemaPath(SignatureResponseDto),
+      type: 'object',
+      properties: {
+        btc: { type: 'object' },
+        eth: { type: 'string' },
+        solana: { type: 'number' },
+      },
     },
   })
-  async signTransaction(
-    @Param('addressId', ParseIntPipe) addressId: number,
-    @Body() signTransactionDto: SignTransactionDto,
-  ): Promise<SignatureResponseDto> {
-    this.logger.log(`Signing transaction for address ${addressId}`);
+  async getBalances(
+    @Body() body: { addresses: { btc: string; eth: string; solana: string } },
+  ): Promise<{ btc: unknown; eth: string; solana: number }> {
     try {
-      return await this.walletService.signTransaction(
-        addressId,
-        signTransactionDto.transactionData,
-      );
+      return await this.walletService.getWalletBalances(body.addresses);
     } catch (error) {
-      this.logger.error(`Failed to sign transaction for address ${addressId}:`, error);
-      // Preserve the original error message if it's a known error type
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      if (error.message) {
-        throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
-      }
-      throw new HttpException('Failed to sign transaction', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.error('Failed to get balances', error);
+      throw new HttpException(
+        `Failed to get balances: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }
