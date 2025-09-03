@@ -8,6 +8,7 @@ import {
   Logger,
   UseFilters,
   HttpStatus,
+  Put,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -178,6 +179,11 @@ export class VaultController {
     const { role } = dto;
     this.logger.log(`Getting database credentials for role: ${role}`);
     return await this.vaultService.getDatabaseCredentials(role);
+  }
+
+@Put('transit/config')
+  async transitKeyConfig(@Body('token') token: string): Promise<void> {
+    await this.vaultService.transitKeyConfig(token);
   }
 
   // Transit Encryption

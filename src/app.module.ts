@@ -9,7 +9,7 @@ import { CryptoModule } from './crypto/crypto.module';
 import { InvoiceModule } from './invoice/invoice.module';
 
 @Module({
-  imports: [DatabaseModule, WalletModule, CommonModule, VaultModule, OcrModule, WorkersModule, CryptoModule, InvoiceModule],
+  imports: [DatabaseModule, WalletModule, CommonModule, VaultModule, OcrModule, WorkersModule, CryptoModule],
   controllers: [],
   providers: [],
 })

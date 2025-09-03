@@ -13,7 +13,7 @@ import {
 export class VaultService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(VaultService.name);
 
-  private vaultClient: any;
+  private vaultClient: vault.client;
   private tokenRenewalTimer: NodeJS.Timeout;
   private isInitialized = false;
 
@@ -41,6 +41,8 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
 
       // Test connection
       await this.healthCheck();
+
+      // await this.transitKeyConfig(vaultToken ?? '');
 
       // Authenticate using AppRole if no token provided
       if (!vaultToken) {
@@ -252,9 +254,46 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+
+
+
+//todo create transit encryption key
+
+// Transit Config
+
+
+async transitKeyConfig(token: string): Promise<any> {
+  this.ensureInitialized();
+  try {
+  const res = await fetch(`${this.configService.get<string>('VAULT_ADDR')}/v1/sys/policies/acl/app-orders`, {
+      method: 'PUT',
+      headers: {
+        'X-Vault-Token': token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        policy: "path \"transit/encrypt/orders\" {\n   capabilities = [ \"update\" ]\n}\n\npath \"transit/decrypt/orders\" {\n   capabilities = [ \"update\" ]\n}\n"
+      }),
+    });
+    this.logger.log(res)
+    this.logger.log(`Transit key policy configured successfully`);
+    return res;
+  } catch (error) {
+    this.logger.error(`Failed to configure transit key`, error.message);
+    throw new HttpException(
+      `Failed to configure transit key: ${error.message}`,
+      HttpStatus.INTERNAL_SERVER_ERROR
+    );
+  }
+}
+
+
+
+
   // Transit Encryption
   async createTransitKey(keyName: string, keyType: string = 'aes256-gcm96'): Promise<void> {
     this.ensureInitialized();
+
     try {
       this.logger.debug(`Creating transit key: ${keyName} of type: ${keyType}`);
       await this.vaultClient.write(`transit/keys/${keyName}`, {
