@@ -1,12 +1,21 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, HttpException, HttpStatus, Inject } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as vault from 'node-vault';
-import { 
-  VaultAuth, 
-  DatabaseCredentials, 
-  EncryptionResult, 
-  DecryptionResult, 
-  VaultHealthStatus
+
+import {
+  DatabaseCredentials,
+  DecryptionResult,
+  EncryptionResult,
+  VaultAuth,
+  VaultHealthStatus,
 } from './vault.dto';
 
 @Injectable()
@@ -97,22 +106,28 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('AppRole authentication failed', error.message);
       throw new HttpException(
         `AppRole authentication failed: ${error.message}`,
-        HttpStatus.UNAUTHORIZED
+        HttpStatus.UNAUTHORIZED,
       );
     }
   }
 
   private startTokenRenewal(): void {
     // Renew token every 30 minutes
-    this.tokenRenewalTimer = setInterval(() => {
-      this.renewToken().catch((error: any) => {
-        this.logger.error('Error during token renewal', error.message);
-        // Try to re-authenticate if token renewal fails
-        this.authenticateWithAppRole().catch((authError: any) => {
-          this.logger.error('Failed to re-authenticate after token renewal failure', authError.message);
+    this.tokenRenewalTimer = setInterval(
+      () => {
+        this.renewToken().catch(error => {
+          this.logger.error('Error during token renewal', error.message);
+          // Try to re-authenticate if token renewal fails
+          this.authenticateWithAppRole().catch(authError => {
+            this.logger.error(
+              'Failed to re-authenticate after token renewal failure',
+              authError.message,
+            );
+          });
         });
-      });
-    }, 30 * 60 * 1000); // 30 minutes
+      },
+      30 * 60 * 1000,
+    ); // 30 minutes
   }
 
   private async renewToken(): Promise<void> {
@@ -127,18 +142,17 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
 
   async healthCheck(): Promise<VaultHealthStatus> {
     const health = await this.vaultClient.health();
-    
+
     try {
       this.logger.debug('Vault health check successful');
       return health;
     } catch (error) {
       this.logger.error('Vault health check failed', error.message);
-      
+
       throw new HttpException(
         `Vault health check failed: ${error.message}`,
-        HttpStatus.SERVICE_UNAVAILABLE
+        HttpStatus.SERVICE_UNAVAILABLE,
       );
-
     }
   }
 
@@ -152,7 +166,7 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
   }
 
   // KV v1 Secret Operations
-  async getSecret(path: string): Promise<any> {
+  async getSecret(path: string) {
     this.ensureInitialized();
     try {
       this.logger.debug(`Reading secret from path: ${path}`);
@@ -160,15 +174,12 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
       return response.data;
     } catch (error) {
       this.logger.error(`Failed to read secret from path: ${path}`, error.message);
-      throw new HttpException(
-        `Failed to read secret: ${error.message}`,
-        HttpStatus.NOT_FOUND
-      );
+      throw new HttpException(`Failed to read secret: ${error.message}`, HttpStatus.NOT_FOUND);
     }
   }
 
   // KV v2 Secret Operations
-  async getKv2Secret(path: string): Promise<any> {
+  async getKv2Secret(path: string) {
     this.ensureInitialized();
     try {
       this.logger.debug(`Reading KV2 secret from path: secret/data/${path}`);
@@ -176,14 +187,11 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
       return response.data.data;
     } catch (error) {
       this.logger.error(`Failed to read KV2 secret from path: ${path}`, error.message);
-      throw new HttpException(
-        `Failed to read KV2 secret: ${error.message}`,
-        HttpStatus.NOT_FOUND
-      );
+      throw new HttpException(`Failed to read KV2 secret: ${error.message}`, HttpStatus.NOT_FOUND);
     }
   }
 
-  async writeSecret(path: string, data: Record<string, any>): Promise<void> {
+  async writeSecret(path: string, data: Record<string, string>): Promise<void> {
     this.ensureInitialized();
     try {
       this.logger.debug(`Writing secret to path: ${path}`);
@@ -193,12 +201,12 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Failed to write secret to path: ${path}`, error.message);
       throw new HttpException(
         `Failed to write secret: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
-  async writeKv2Secret(path: string, data: Record<string, any>): Promise<void> {
+  async writeKv2Secret(path: string, data: Record<string, string>): Promise<void> {
     this.ensureInitialized();
     try {
       this.logger.debug(`Writing KV2 secret to path: secret/data/${path}`);
@@ -208,7 +216,7 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Failed to write KV2 secret to path: ${path}`, error.message);
       throw new HttpException(
         `Failed to write KV2 secret: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -223,7 +231,7 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Failed to delete secret from path: ${path}`, error.message);
       throw new HttpException(
         `Failed to delete secret: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -234,7 +242,7 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
     try {
       this.logger.debug(`Getting database credentials for role: ${role}`);
       const response = await this.vaultClient.read(`database/creds/${role}`);
-      
+
       const credentials: DatabaseCredentials = {
         username: response.data.username,
         password: response.data.password,
@@ -249,7 +257,7 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Failed to get database credentials for role: ${role}`, error.message);
       throw new HttpException(
         `Failed to get database credentials: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -305,58 +313,66 @@ async transitKeyConfig(token: string): Promise<any> {
       this.logger.error(`Failed to create transit key: ${keyName}`, error.message);
       throw new HttpException(
         `Failed to create transit key: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
-  async encryptData(keyName: string, plaintext: string, context?: string): Promise<EncryptionResult> {
+  async encryptData(
+    keyName: string,
+    plaintext: string,
+    context?: string,
+  ): Promise<EncryptionResult> {
     this.ensureInitialized();
     try {
       this.logger.debug(`Encrypting data with key: ${keyName}`);
-      
+
       const base64Data = Buffer.from(plaintext, 'utf8').toString('base64');
-      const payload: any = { plaintext: base64Data };
-      
+      const payload: Record<string, string> = { plaintext: base64Data };
+
       if (context) {
         payload.context = Buffer.from(context, 'utf8').toString('base64');
       }
 
       const response = await this.vaultClient.write(`transit/encrypt/${keyName}`, payload);
-      
+
       this.logger.log('Data encrypted successfully');
       return { ciphertext: response.data.ciphertext };
     } catch (error) {
       this.logger.error(`Failed to encrypt data with key: ${keyName}`, error.message);
       throw new HttpException(
         `Failed to encrypt data: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
-  async decryptData(keyName: string, ciphertext: string, context?: string): Promise<DecryptionResult> {
+  async decryptData(
+    keyName: string,
+    ciphertext: string,
+    context?: string,
+  ): Promise<DecryptionResult> {
     this.ensureInitialized();
     try {
       this.logger.debug(`Decrypting data with key: ${keyName}`);
-      
-      const payload: any = { ciphertext };
-      
+
+      const payload: Record<string, string> = { ciphertext };
+
       if (context) {
         payload.context = Buffer.from(context, 'utf8').toString('base64');
       }
 
       const response = await this.vaultClient.write(`transit/decrypt/${keyName}`, payload);
-      
+
       const plaintext = Buffer.from(response.data.plaintext, 'base64').toString('utf8');
-      
+
       this.logger.log('Data decrypted successfully');
       return { plaintext };
     } catch (error) {
       this.logger.error(`Failed to decrypt data with key: ${keyName}`, error.message);
       throw new HttpException(
         `Failed to decrypt data: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -375,7 +391,7 @@ async transitKeyConfig(token: string): Promise<any> {
       this.logger.error(`Failed to create policy: ${name}`, error.message);
       throw new HttpException(
         `Failed to create policy: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -388,10 +404,7 @@ async transitKeyConfig(token: string): Promise<any> {
       return response.rules || response;
     } catch (error) {
       this.logger.error(`Failed to get policy: ${name}`, error.message);
-      throw new HttpException(
-        `Failed to get policy: ${error.message}`,
-        HttpStatus.NOT_FOUND
-      );
+      throw new HttpException(`Failed to get policy: ${error.message}`, HttpStatus.NOT_FOUND);
     }
   }
 
@@ -405,7 +418,7 @@ async transitKeyConfig(token: string): Promise<any> {
       this.logger.error(`Failed to delete policy: ${name}`, error.message);
       throw new HttpException(
         `Failed to delete policy: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -420,14 +433,14 @@ async transitKeyConfig(token: string): Promise<any> {
         ttl,
         renewable: true,
       });
-      
+
       this.logger.log('Token created successfully');
       return response.auth;
     } catch (error) {
       this.logger.error('Failed to create token', error.message);
       throw new HttpException(
         `Failed to create token: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -442,7 +455,7 @@ async transitKeyConfig(token: string): Promise<any> {
       this.logger.error('Failed to revoke token', error.message);
       throw new HttpException(
         `Failed to revoke token: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -451,7 +464,7 @@ async transitKeyConfig(token: string): Promise<any> {
     if (!this.isInitialized) {
       throw new HttpException(
         'Vault service not initialized. Please check Vault configuration and ensure Vault server is running.',
-        HttpStatus.SERVICE_UNAVAILABLE
+        HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
   }

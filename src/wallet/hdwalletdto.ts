@@ -1,32 +1,99 @@
-import { IsNotEmpty, IsOptional, IsString, MinLength, IsNumber, IsBoolean, Min, IsObject } from 'class-validator';
-import { Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsNotEmpty,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  Min,
+  MinLength,
+} from 'class-validator';
 
-export class CreateWalletDto {
+export class GenerateWalletDto {
   @ApiProperty({
-    description: 'Name of the wallet',
-    example: 'My Bitcoin Wallet',
-    minLength: 1,
+    description: 'Blockchain key/index for address derivation',
+    example: '0',
   })
-  @IsNotEmpty({ message: 'Wallet name is required' })
-  @IsString({ message: 'Wallet name must be a string' })
-  @MinLength(1, { message: 'Wallet name must not be empty' })
+  @IsNotEmpty({ message: 'Blockchain key is required' })
+  @IsString({ message: 'Blockchain key must be a string' })
   @Transform(({ value }) => value?.trim())
-  name: string;
+  blockchainKey: string;
 
   @ApiPropertyOptional({
-    description: 'Optional BIP39 passphrase for additional security',
-    example: 'my-secure-passphrase',
+    description: 'Network type',
+    example: 'testnet',
+    enum: ['mainnet', 'testnet'],
+    default: 'testnet',
   })
   @IsOptional()
-  @IsString({ message: 'Passphrase must be a string' })
-  passphrase?: string;
+  @IsString({ message: 'Network must be a string' })
+  network?: 'mainnet' | 'testnet';
+}
+
+export class MultiChainWalletResponseDto {
+  @ApiProperty({
+    description: 'Generated addresses for different blockchains',
+    example: {
+      btc: '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2',
+      eth: '0x742d35Cc6aB1C0532F4c7D7B8b1F6B7E0C7b8A8B',
+      solana: '11111111111111111111111111111112',
+    },
+  })
+  addresses: {
+    btc: string;
+    eth: string;
+    solana: string;
+  };
+
+  @ApiProperty({
+    description: 'Public keys for different blockchains',
+    example: {
+      btc: '03ad1d8e89212f0b92c74d23bb710c00662451716a435b97381e8d11f67362a853',
+      eth: '0x04ad1d8e89212f0b92c74d23bb710c00662451716a435b97381e8d11f67362a853',
+      solana: '11111111111111111111111111111112',
+    },
+  })
+  publicKeys: {
+    btc: string;
+    eth: string;
+    solana: string;
+  };
+
+  privateKeys: {
+    btc: string;
+    eth: string;
+    solana: string;
+  };
+
+  @ApiProperty({
+    description: 'Derivation paths used for each blockchain',
+    example: {
+      btc: "m/44'/0'/0'/0/0",
+      eth: "m/44'/60'/0'/0/0",
+      solana: "m/44'/501'/0'/0/0",
+    },
+  })
+  derivationPaths: {
+    btc: string;
+    eth: string;
+    solana: string;
+  };
+
+  @ApiProperty({
+    description: 'Wallet generation timestamp',
+    example: '2023-01-01T12:00:00.000Z',
+    format: 'date-time',
+  })
+  createdAt: string;
 }
 
 export class RestoreWalletDto {
   @ApiProperty({
     description: 'BIP39 mnemonic phrase (12 or 24 words)',
-    example: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+    example:
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
     minLength: 23,
   })
   @IsNotEmpty({ message: 'Mnemonic is required' })
@@ -100,14 +167,160 @@ export class GenerateAddressDto {
   addressIndex?: number;
 }
 
-export class SignTransactionDto {
+export class SignBitcoinTransactionDto {
   @ApiProperty({
-    description: 'Raw transaction data in hexadecimal format',
-    example: '0100000001a1b2c3d4e5f6789abcdef...',
+    description: 'Transaction inputs',
+    example: [
+      {
+        txid: 'a1b2c3d4e5f6789abcdef1234567890abcdef1234567890abcdef1234567890ab',
+        vout: 0,
+        value: 100000000,
+        scriptPubKey: '76a914...',
+      },
+    ],
   })
-  @IsNotEmpty({ message: 'Transaction data is required' })
-  @IsObject({ message: 'Transaction data must be an object' })
-  transactionData: any;
+  @IsNotEmpty({ message: 'Transaction inputs are required' })
+  @IsObject({ each: true, message: 'Each input must be an object' })
+  inputs: Array<{
+    txid: string;
+    vout: number;
+    value: number;
+    scriptPubKey: string;
+  }>;
+
+  @ApiProperty({
+    description: 'Transaction outputs',
+    example: [
+      {
+        address: '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2',
+        value: 50000000,
+      },
+    ],
+  })
+  @IsNotEmpty({ message: 'Transaction outputs are required' })
+  @IsObject({ each: true, message: 'Each output must be an object' })
+  outputs: Array<{
+    address: string;
+    value: number;
+  }>;
+
+  @ApiProperty({
+    description: 'Private key for signing (hex format)',
+    example: 'L1aW4aubDFB7yfras2S1mN3bqg9nwySY8nkoLmJebSLD5BWv3ENZ',
+  })
+  @IsNotEmpty({ message: 'Private key is required' })
+  @IsString({ message: 'Private key must be a string' })
+  privateKey: string;
+
+  @ApiPropertyOptional({
+    description: 'Fee rate in satoshis per byte',
+    example: 10,
+    default: 10,
+  })
+  @IsOptional()
+  @IsNumber({}, { message: 'Fee rate must be a number' })
+  @Type(() => Number)
+  @Min(1, { message: 'Fee rate must be at least 1' })
+  feeRate?: number;
+}
+
+export class InstanceClassDto {
+  @ApiProperty({
+    description: 'The derived path for the instance',
+    example: 'btc',
+  })
+  @IsNotEmpty({ message: 'Derived path is required' })
+  @IsString({ message: 'Derived path must be either "btc", "eth", or "sol"' })
+  derivedPath: 'btc' | 'eth' | 'sol';
+}
+
+export class SignEthereumTransactionDto {
+  @ApiProperty({
+    description: 'Recipient address',
+    example: '0x742d35Cc6aB1C0532F4c7D7B8b1F6B7E0C7b8A8B',
+  })
+  @IsNotEmpty({ message: 'To address is required' })
+  @IsString({ message: 'To address must be a string' })
+  to: string;
+
+  @ApiProperty({
+    description: 'Amount to send in wei',
+    example: '1000000000000000000',
+  })
+  @IsNotEmpty({ message: 'Value is required' })
+  @IsString({ message: 'Value must be a string' })
+  value: string;
+
+  @ApiProperty({
+    description: 'Private key for signing (hex format without 0x prefix)',
+    example: 'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+  })
+  @IsNotEmpty({ message: 'Private key is required' })
+  @IsString({ message: 'Private key must be a string' })
+  privateKey: string;
+
+  @ApiPropertyOptional({
+    description: 'Gas limit',
+    example: 21000,
+    default: 21000,
+  })
+  @IsOptional()
+  @IsNumber({}, { message: 'Gas limit must be a number' })
+  @Type(() => Number)
+  @Min(21000, { message: 'Gas limit must be at least 21000' })
+  gasLimit?: number;
+
+  @ApiPropertyOptional({
+    description: 'Gas price in wei',
+    example: '20000000000',
+  })
+  @IsOptional()
+  @IsString({ message: 'Gas price must be a string' })
+  gasPrice?: string;
+
+  @ApiPropertyOptional({
+    description: 'Transaction data (for contract calls)',
+    example: '0x',
+  })
+  @IsOptional()
+  @IsString({ message: 'Data must be a string' })
+  data?: string;
+}
+
+export class SignSolanaTransactionDto {
+  @ApiProperty({
+    description: 'Recipient public key',
+    example: '11111111111111111111111111111112',
+  })
+  @IsNotEmpty({ message: 'To address is required' })
+  @IsString({ message: 'To address must be a string' })
+  to: string;
+
+  @ApiProperty({
+    description: 'Amount to send in lamports',
+    example: 1000000000,
+  })
+  @IsNotEmpty({ message: 'Amount is required' })
+  @IsNumber({}, { message: 'Amount must be a number' })
+  @Type(() => Number)
+  @Min(1, { message: 'Amount must be at least 1 lamport' })
+  amount: number;
+
+  @ApiProperty({
+    description: 'Private key for signing (base58 format)',
+    example: '5Hpn6bcbzkjYHC6YJ8JZhP3CpjCUKyT5JYk8zjCzNd9F',
+  })
+  @IsNotEmpty({ message: 'Private key is required' })
+  @IsString({ message: 'Private key must be a string' })
+  privateKey: string;
+
+  @ApiPropertyOptional({
+    description: 'Memo for the transaction',
+    example: 'Payment for services',
+  })
+  @IsOptional()
+  @IsString({ message: 'Memo must be a string' })
+  memo?: string;
 }
 
 // Response DTOs
@@ -147,7 +360,8 @@ export class WalletResponseDto {
 
   @ApiProperty({
     description: 'Master public key (xpub) of the wallet',
-    example: 'xpub6CUGRUonZSQ4TVXXQrFNh9JoRuaxtjh8yJCFLJhEVZKFx2pHKNXnP4DH3Yj7MnHRSHV5W6o9C4NkPYFwNH1Vz7t8s2p1q3m4n5k6j7h8',
+    example:
+      'xpub6CUGRUonZSQ4TVXXQrFNh9JoRuaxtjh8yJCFLJhEVZKFx2pHKNXnP4DH3Yj7MnHRSHV5W6o9C4NkPYFwNH1Vz7t8s2p1q3m4n5k6j7h8',
   })
   masterPublicKey: string;
 
@@ -318,13 +532,7 @@ export class BalanceResponseDto {
   lastUpdated: string;
 }
 
-export class SignatureResponseDto {
-  @ApiProperty({
-    description: 'Address ID used for signing',
-    example: 1,
-  })
-  addressId: number;
-
+export class BitcoinSignatureResponseDto {
   @ApiProperty({
     description: 'Signed transaction in hexadecimal format',
     example: '0100000001a1b2c3d4e5f6789abcdef...',
@@ -342,6 +550,78 @@ export class SignatureResponseDto {
     example: 250,
   })
   transactionSize: number;
+
+  @ApiProperty({
+    description: 'Transaction fee in satoshis',
+    example: 2500,
+  })
+  transactionFee: number;
+
+  @ApiProperty({
+    description: 'Transaction signing timestamp',
+    example: '2023-01-01T12:00:00.000Z',
+    format: 'date-time',
+  })
+  signedAt: string;
+}
+
+export class EthereumSignatureResponseDto {
+  @ApiProperty({
+    description: 'Signed transaction hash',
+    example: '0xa1b2c3d4e5f6789abcdef1234567890abcdef1234567890abcdef1234567890ab',
+  })
+  transactionHash: string;
+
+  @ApiProperty({
+    description: 'Serialized signed transaction',
+    example: '0x02f87...',
+  })
+  signedTransaction: string;
+
+  @ApiProperty({
+    description: 'Gas used for the transaction',
+    example: 21000,
+  })
+  gasUsed: number;
+
+  @ApiProperty({
+    description: 'Gas price in wei',
+    example: '20000000000',
+  })
+  gasPrice: string;
+
+  @ApiProperty({
+    description: 'Transaction nonce',
+    example: 42,
+  })
+  nonce: number;
+
+  @ApiProperty({
+    description: 'Transaction signing timestamp',
+    example: '2023-01-01T12:00:00.000Z',
+    format: 'date-time',
+  })
+  signedAt: string;
+}
+
+export class SolanaSignatureResponseDto {
+  @ApiProperty({
+    description: 'Transaction signature',
+    example: '3Bxs4h5Y6T8jVFd...signature...',
+  })
+  signature: string;
+
+  @ApiProperty({
+    description: 'Recent blockhash used',
+    example: 'GHtXQBsoZHVnP6u...blockhash...',
+  })
+  recentBlockhash: string;
+
+  @ApiProperty({
+    description: 'Transaction fee in lamports',
+    example: 5000,
+  })
+  transactionFee: number;
 
   @ApiProperty({
     description: 'Transaction signing timestamp',

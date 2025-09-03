@@ -1,10 +1,10 @@
-import { 
-  ExceptionFilter, 
-  Catch, 
-  ArgumentsHost, 
-  HttpException, 
-  HttpStatus, 
-  Logger 
+import {
+  ArgumentsHost,
+  Catch,
+  ExceptionFilter,
+  HttpException,
+  HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 
@@ -12,7 +12,7 @@ import { Request, Response } from 'express';
 export class WalletExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(WalletExceptionFilter.name);
 
-  catch(exception: any, host: ArgumentsHost) {
+  catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
@@ -21,18 +21,19 @@ export class WalletExceptionFilter implements ExceptionFilter {
     let message = 'Internal server error';
     let errorCode = 'WALLET_ERROR';
 
-    this.logger.error('Exception caught by WalletExceptionFilter', exception.stack);
+    this.logger.error('Exception caught by WalletExceptionFilter', (exception as Error).stack);
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const exceptionResponse = exception.getResponse();
-      message = typeof exceptionResponse === 'string' 
-        ? exceptionResponse 
-        : (exceptionResponse as any).message || message;
-    } else if (exception.message) {
+      message =
+        typeof exceptionResponse === 'string'
+          ? exceptionResponse
+          : (exceptionResponse as Error).message || message;
+    } else if ((exception as Error).message) {
       // Handle specific Wallet errors
-      const errorMessage = exception.message.toLowerCase();
-      
+      const errorMessage = (exception as Error).message.toLowerCase();
+
       if (errorMessage.includes('wallet not found')) {
         status = HttpStatus.NOT_FOUND;
         message = 'Wallet not found';
@@ -49,11 +50,17 @@ export class WalletExceptionFilter implements ExceptionFilter {
         status = HttpStatus.BAD_REQUEST;
         message = 'Invalid mnemonic phrase';
         errorCode = 'INVALID_MNEMONIC';
-      } else if (errorMessage.includes('invalid derivation path') || errorMessage.includes('invalid path')) {
+      } else if (
+        errorMessage.includes('invalid derivation path') ||
+        errorMessage.includes('invalid path')
+      ) {
         status = HttpStatus.BAD_REQUEST;
         message = 'Invalid derivation path';
         errorCode = 'INVALID_DERIVATION_PATH';
-      } else if (errorMessage.includes('insufficient balance') || errorMessage.includes('insufficient funds')) {
+      } else if (
+        errorMessage.includes('insufficient balance') ||
+        errorMessage.includes('insufficient funds')
+      ) {
         status = HttpStatus.BAD_REQUEST;
         message = 'Insufficient balance for transaction';
         errorCode = 'INSUFFICIENT_BALANCE';
@@ -71,7 +78,7 @@ export class WalletExceptionFilter implements ExceptionFilter {
         errorCode = 'DUPLICATE_RESOURCE';
       } else if (errorMessage.includes('validation') || errorMessage.includes('invalid')) {
         status = HttpStatus.BAD_REQUEST;
-        message = exception.message;
+        message = (exception as Error).message;
         errorCode = 'VALIDATION_ERROR';
       } else if (errorMessage.includes('timeout')) {
         status = HttpStatus.REQUEST_TIMEOUT;
@@ -82,7 +89,7 @@ export class WalletExceptionFilter implements ExceptionFilter {
         message = 'Blockchain network unavailable';
         errorCode = 'BLOCKCHAIN_NETWORK_ERROR';
       } else {
-        message = exception.message;
+        message = (exception as Error).message;
       }
     }
 
@@ -98,7 +105,7 @@ export class WalletExceptionFilter implements ExceptionFilter {
     // Log the error details
     this.logger.error(
       `${request.method} ${request.url} - ${status} - ${message}`,
-      exception.stack
+      (exception as Error).stack,
     );
 
     response.status(status).json(errorResponse);

@@ -41,12 +41,12 @@ export class HdWalletService {
     private readonly encryption: EncryptionService,
     private readonly discoveryService: DiscoveryService
   ) {
-    // const providers = this.discoveryService.getProviders();
-    // console.log({ providers })
-    // const controllers = this.discoveryService.getControllers();
-    // console.log({
-    //   controllers
-    // })
+    const providers = this.discoveryService.getProviders();
+    console.log({ providers })
+    const controllers = this.discoveryService.getControllers();
+    console.log({
+      controllers
+    })
    }
 
 
