@@ -3,7 +3,6 @@ import { HDKey } from '@scure/bip32';
 import { ethers } from 'ethers';
 
 import { EthereumSignatureResponseDto } from './hdwalletdto';
-import { WalletService } from './wallet.service';
 import { FeatureFlag } from './wallet-instance.service';
 
 interface EthereumTransactionParams {

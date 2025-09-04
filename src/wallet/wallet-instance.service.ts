@@ -39,9 +39,6 @@ export class WalletInstanceService {
     console.log('Service Instance:', serviceInstance);
     console.log('Service Constructor:', serviceInstance?.constructor?.name);
 
-    if (serviceInstance instanceof SolWalletService) {
-      // Do something specific for SolWalletService
-    }
     return serviceInstance;
   }
 }
